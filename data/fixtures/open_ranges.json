@@ -1,0 +1,5 @@
+[
+  {"position": "UTG", "style": "REG", "range_str": "77+, ATs+, KQs, AJo+"},
+  {"position": "CO", "style": "REG", "range_str": "22+, A2s+, K9s+, A8o+, KTo+"},
+  {"position": "BTN", "style": "REG", "range_str": "22+, A2s+, K2s+, Q5s+, A2o+, K7o+"}
+]

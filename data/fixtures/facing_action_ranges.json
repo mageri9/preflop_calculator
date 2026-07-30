@@ -1,0 +1,12 @@
+[
+  {
+    "hero_position": "CO",
+    "villain_position": "MP",
+    "villain_action": "OPEN_2.5X",
+    "stack_bb": 30,
+    "opponent_style": "REG",
+    "range_3bet_push": "TT+, AKs",
+    "range_3bet_raise": "AJs+, KQs, JJ-99",
+    "range_call": "ATs, KJs, QJs, 88-66"
+  }
+]

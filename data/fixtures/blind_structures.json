@@ -1,0 +1,5 @@
+[
+  {"structure_id": "TURBO", "level": 1, "sb_chips": 25, "bb_chips": 50, "ante_chips": 5},
+  {"structure_id": "TURBO", "level": 2, "sb_chips": 50, "bb_chips": 100, "ante_chips": 10},
+  {"structure_id": "TURBO", "level": 3, "sb_chips": 75, "bb_chips": 150, "ante_chips": 15}
+]

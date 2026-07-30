@@ -1,0 +1,5 @@
+[
+  {"table_size": 9, "position": "UTG", "stack_bb": 10, "has_ante": true, "action": "PUSH_ONLY", "range_str": "22+, A2s+, K9s+, QTs+, ATo+, KJo+"},
+  {"table_size": 9, "position": "CO", "stack_bb": 10, "has_ante": true, "action": "PUSH_ONLY", "range_str": "22+, A2s+, K2s+, Q6s+, J8s+, A2o+, K8o+"},
+  {"table_size": 9, "position": "BTN", "stack_bb": 10, "has_ante": true, "action": "PUSH_ONLY", "range_str": "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, A2o+, K5o+"}
+]

@@ -1,0 +1,3 @@
+[
+  {"table_size": 9, "position": "BTN", "stack_bb": 10, "payout_stage": "BUBBLE", "has_ante": true, "action": "PUSH_ONLY", "range_str": "22+, A2s+, K5s+, Q7s+, A5o+, K9o+"}
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "pot_type": "SRP",
+    "hero_role": "PFR",
+    "hero_position": "IP",
+    "texture_id": "DRY_RAINBOW",
+    "bucket_id": "TPTK",
+    "stack_depth": "MEDIUM",
+    "action_check_pct": 22,
+    "action_bet_pct": 78,
+    "action_raise_pct": 0,
+    "recommended_sizing": "BET_33%_POT"
+  }
+]
