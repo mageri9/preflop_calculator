@@ -1,0 +1,58 @@
+from fastapi import APIRouter, Depends
+import redis.asyncio as aioredis
+
+from src.api.auth import get_current_user_id
+from src.api.schemas import (
+    PostflopDecisionRequest,
+    PreflopDecisionRequest,
+    SessionResponse,
+    TableSizeRequest,
+    UpdateSessionRequest,
+)
+from src.core.config import settings
+from src.db.base import SessionLocal
+from src.engine.decision_engine import DecisionEngine
+from src.services.session_manager import SessionManager
+
+router = APIRouter(prefix="/api")
+redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=False)
+session_manager = SessionManager(redis_client)
+decision_engine = DecisionEngine()
+
+def _response(session):
+    with SessionLocal() as db:
+        return SessionResponse.model_validate({**session.model_dump(), "hero_position_label": session_manager.get_hero_position_label(session, db), "stack_bb": session_manager.get_stack_bb(session, db)})
+
+@router.get("/session", response_model=SessionResponse)
+async def get_session(user_id: int = Depends(get_current_user_id)): return _response(await session_manager.get_or_create_session(user_id))
+
+@router.post("/session/next-hand", response_model=SessionResponse)
+async def next_hand(user_id: int = Depends(get_current_user_id)): return _response(await session_manager.next_hand(user_id))
+
+@router.post("/session/table-size", response_model=SessionResponse)
+async def table_size(body: TableSizeRequest, user_id: int = Depends(get_current_user_id)): return _response(await session_manager.change_table_size(user_id, body.table_size))
+
+@router.post("/session/update", response_model=SessionResponse)
+async def update_session(body: UpdateSessionRequest, user_id: int = Depends(get_current_user_id)):
+    session = await session_manager.get_or_create_session(user_id)
+    for key, value in body.model_dump(exclude_none=True).items(): setattr(session, key, value)
+    await session_manager.save_session(session)
+    return _response(session)
+
+@router.post("/decision/preflop")
+async def preflop(body: PreflopDecisionRequest, user_id: int = Depends(get_current_user_id)):
+    session = await session_manager.get_or_create_session(user_id)
+    with SessionLocal() as db:
+        label, stack = session_manager.get_hero_position_label(session, db), session_manager.get_stack_bb(session, db)
+        if body.facing_action:
+            result = decision_engine.get_preflop_facing_action_decision(db, label, body.villain_position or "UTG", body.facing_action, stack, session.opponent_style, body.hero_combo)
+        else:
+            result = decision_engine.get_preflop_first_in_decision(db, session.table_size, label, stack, body.hero_combo, session.icm_stage, session.has_ante, session.opponent_style)
+    return result
+
+@router.post("/decision/postflop")
+async def postflop(body: PostflopDecisionRequest, user_id: int = Depends(get_current_user_id)):
+    session = await session_manager.get_or_create_session(user_id)
+    with SessionLocal() as db:
+        result = decision_engine.get_postflop_decision(db, body.hero_cards, body.flop_cards, body.pot_type, body.hero_role, body.hero_position, session_manager.get_stack_bb(session, db))
+    return result
