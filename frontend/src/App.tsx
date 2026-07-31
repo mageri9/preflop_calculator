@@ -1,5 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { apiClient } from './api/client';
+import { Matrix13x13 } from './components/Matrix13x13';
 import { usePokerSession } from './hooks/usePokerSession';
+import type { DecisionResult } from './types/poker';
 
 const sessionFields = [
   ['Позиция Хиро', 'hero_position_label'],
@@ -10,7 +13,36 @@ const sessionFields = [
 
 export default function App() {
   const { session, loading, error, triggerNextHand } = usePokerSession();
+  const [selectedCombo, setSelectedCombo] = useState<string>();
+  const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionError, setDecisionError] = useState<string>();
+  const requestIdRef = useRef(0);
   const isTelegram = Boolean(window.Telegram?.WebApp?.initData);
+
+  const handleSelectCombo = async (combo: string) => {
+    const requestId = ++requestIdRef.current;
+    setSelectedCombo(combo);
+    setDecisionLoading(true);
+    setDecisionError(undefined);
+
+    try {
+      const result = await apiClient.getPreflopDecision({ hero_combo: combo });
+      if (requestId === requestIdRef.current) {
+        setDecisionResult(result);
+      }
+    } catch (requestError) {
+      if (requestId === requestIdRef.current) {
+        setDecisionError(
+          requestError instanceof Error ? requestError.message : 'Не удалось получить решение',
+        );
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setDecisionLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
@@ -64,6 +96,38 @@ export default function App() {
               </article>
             ))}
           </div>
+
+          <div className="mt-6">
+            <Matrix13x13
+              activeRangeStr={decisionResult?.range_str}
+              selectedCombo={selectedCombo}
+              onSelectCombo={(combo) => void handleSelectCombo(combo)}
+              isLoading={decisionLoading}
+            />
+          </div>
+
+          {decisionError && (
+            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">
+              {decisionError}
+            </div>
+          )}
+
+          {decisionResult && (
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-white/40">Рекомендация</p>
+                <p className="mt-1 text-xl font-extrabold text-amber-300">
+                  {decisionResult.action}
+                </p>
+              </div>
+              <p className="text-right text-sm text-cream">
+                <span className="block font-bold">{selectedCombo}</span>
+                <span className="text-white/50">
+                  {decisionResult.range_stats?.percentage ?? 0}% диапазона
+                </span>
+              </p>
+            </div>
+          )}
 
           <button
             type="button"
