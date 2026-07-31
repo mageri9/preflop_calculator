@@ -1,150 +1,76 @@
 import type { DecisionResult } from '../types/poker';
+import { formatCard } from './FlopPicker';
+
+type PotType = 'SRP' | '3BP';
+type HeroRole = 'PFR' | 'PFC';
+type HeroPosition = 'IP' | 'OOP';
 
 export interface PostflopViewProps {
   result: DecisionResult | null;
-  potType: 'SRP' | '3BP';
-  heroRole: 'PFR' | 'PFC';
-  heroPosition: 'IP' | 'OOP';
-  onUpdateContext: (payload: {
-    potType?: 'SRP' | '3BP';
-    heroRole?: 'PFR' | 'PFC';
-    heroPosition?: 'IP' | 'OOP';
-  }) => void;
+  flopCards: string[];
+  heroCombo?: string;
+  stackBB: number;
+  potType: PotType;
+  heroRole: HeroRole;
+  heroPosition: HeroPosition;
+  onUpdateContext: (payload: { potType?: PotType; heroRole?: HeroRole; heroPosition?: HeroPosition }) => void;
+  onEditFlop: () => void;
+  onNextHand: () => void;
   isLoading?: boolean;
 }
 
-const toggleClass = (active: boolean) =>
-  `rounded-lg px-3 py-2 text-xs font-black transition disabled:cursor-wait disabled:opacity-50 ${
-    active
-      ? 'bg-emerald-400 text-emerald-950 shadow-md shadow-emerald-950/30'
-      : 'bg-white/[0.06] text-white/60 hover:bg-white/10'
-  }`;
+const contextOptions = [
+  { key: 'potType', label: 'Банк', values: [['SRP', 'SRP'], ['3BP', '3-Bet Pot']] },
+  { key: 'heroRole', label: 'Хиро', values: [['PFR', 'PFR · Агрессор'], ['PFC', 'PFC · Коллер']] },
+  { key: 'heroPosition', label: 'Позиция', values: [['IP', 'IP'], ['OOP', 'OOP']] },
+] as const;
 
-export function PostflopView({
-  result,
-  potType,
-  heroRole,
-  heroPosition,
-  onUpdateContext,
-  isLoading = false,
-}: PostflopViewProps) {
-  const groups = [
-    {
-      label: 'Тип банка',
-      values: [
-        ['SRP', 'Single Raised Pot'],
-        ['3BP', '3-Bet Pot'],
-      ] as const,
-      current: potType,
-      update: (value: 'SRP' | '3BP') => onUpdateContext({ potType: value }),
-    },
-    {
-      label: 'Роль Хиро',
-      values: [
-        ['PFR', 'Preflop Aggressor'],
-        ['PFC', 'Preflop Caller'],
-      ] as const,
-      current: heroRole,
-      update: (value: 'PFR' | 'PFC') => onUpdateContext({ heroRole: value }),
-    },
-    {
-      label: 'Позиция',
-      values: [
-        ['IP', 'In Position'],
-        ['OOP', 'Out of Position'],
-      ] as const,
-      current: heroPosition,
-      update: (value: 'IP' | 'OOP') => onUpdateContext({ heroPosition: value }),
-    },
-  ];
-
+export function PostflopView(props: PostflopViewProps) {
+  const { result, flopCards, heroCombo, stackBB, potType, heroRole, heroPosition, onUpdateContext, onEditFlop, onNextHand, isLoading } = props;
+  const potBB = potType === 'SRP' ? 5.5 : 11;
+  const sizingMatch = result?.recommended_sizing?.match(/(\d+)%/);
+  const sizingPct = sizingMatch ? Number(sizingMatch[1]) : undefined;
+  const sizingBB = sizingPct ? (potBB * sizingPct / 100).toFixed(1) : undefined;
   const frequencies = [
-    { label: 'CHECK', value: result?.frequencies?.check_pct ?? 0, color: 'bg-slate-400' },
-    { label: 'BET', value: result?.frequencies?.bet_pct ?? 0, color: 'bg-emerald-400' },
-    { label: 'RAISE', value: result?.frequencies?.raise_pct ?? 0, color: 'bg-amber-400' },
-  ];
-  const details = result?.details;
+    ['BET', result?.frequencies?.bet_pct ?? 0, 'bg-emerald-400'],
+    ['CHECK', result?.frequencies?.check_pct ?? 0, 'bg-sky-400'],
+    ['RAISE', result?.frequencies?.raise_pct ?? 0, 'bg-amber-400'],
+  ] as const;
+  const current = { potType, heroRole, heroPosition };
+
+  if (!result || isLoading) return <div className="rounded-2xl border border-dashed border-white/15 p-5 text-center text-sm text-slate-400">{isLoading ? 'Evaluator анализирует текстуру и категорию руки…' : 'Выберите три карты флопа.'}</div>;
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-md" aria-busy={isLoading}>
-      <div className="space-y-3">
-        {groups.map((group) => (
-          <div key={group.label}>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{group.label}</p>
-            <div className="grid grid-cols-2 gap-2">
-              {group.values.map(([value, description]) => (
-                <button
-                  key={value}
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => group.update(value as never)}
-                  className={toggleClass(group.current === value)}
-                  aria-pressed={group.current === value}
-                >
-                  <span className="block">{value}</span>
-                  <span className="mt-0.5 block text-[9px] font-medium opacity-60">{description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+    <section className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/90 shadow-2xl">
+      <div className="border-b border-white/10 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="text-xs font-bold text-slate-500">ФЛОП</p><p className="mt-1 text-2xl font-black tracking-wide">{flopCards.map(formatCard).join('  ')}</p></div>
+          <div className="text-right text-xs text-slate-400"><p>Банк: <b className="text-white">{potBB} BB</b></p><p>Эфф. стек: <b className="text-white">{stackBB} BB</b></p></div>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-1.5">
+          {contextOptions.map((group) => <label key={group.key} className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{group.label}<select value={current[group.key]} onChange={(event) => onUpdateContext({ [group.key]: event.target.value } as never)} className="mt-1 block w-full rounded-lg bg-white/5 p-2 text-[10px] font-bold normal-case text-slate-200 outline-none">{group.values.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold uppercase">
+          <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-emerald-300">{result.details.texture_id}</span>
+          <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-amber-300">{result.details.bucket_id} · {heroCombo}</span>
+        </div>
       </div>
 
-      {isLoading && (
-        <div className="mt-5 animate-pulse rounded-xl border border-mint/20 bg-mint/5 p-5 text-center text-sm font-bold text-mint">
-          Рассчитываем GTO-линию…
+      <div className="p-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">Рекомендуемое действие</p>
+        <p className="mt-1 text-3xl font-black text-white">{result.action}</p>
+        <div className="mt-4 space-y-3">
+          {frequencies.filter(([, value]) => value > 0).map(([label, value, color]) => <div key={label}><div className="mb-1 flex justify-between text-xs font-bold"><span>{label}</span><span>{value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-white/5"><div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${value}%` }} /></div></div>)}
         </div>
-      )}
-
-      {!isLoading && !result && (
-        <div className="mt-5 rounded-xl border border-dashed border-white/15 p-5 text-center text-sm text-white/40">
-          Выберите три карты флопа, чтобы увидеть стратегию.
+        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
+          <p className="text-xs text-slate-400">Оптимальный сайзинг</p>
+          <p className="mt-1 text-lg font-black text-amber-300">{sizingPct ? `${sizingPct}% POT${sizingBB ? ` · ${sizingBB} BB` : ''}` : result.recommended_sizing}</p>
         </div>
-      )}
-
-      {!isLoading && result && (
-        <div className="mt-5 space-y-5">
-          {details && (
-            <div className="flex flex-wrap gap-2">
-              {[
-                ['Текстура', details.texture_id],
-                ['Рука', details.bucket_id],
-                ['Стек', details.stack_depth],
-              ].map(([label, value]) => value != null && (
-                <span key={label} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/65">
-                  <span className="mr-1 text-white/30">{label}:</span> {String(value)}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {result.frequencies && (
-            <div className="space-y-3">
-              {frequencies.map(({ label, value, color }) => {
-                const percentage = Math.min(100, Math.max(0, value));
-                return (
-                  <div key={label}>
-                    <div className="mb-1 flex justify-between text-xs font-bold">
-                      <span className="text-white/55">{label}</span>
-                      <span className="text-cream">{percentage.toFixed(1)}%</span>
-                    </div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-white/[0.06]">
-                      <div className={`h-full rounded-full ${color} transition-[width] duration-500`} style={{ width: `${percentage}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="overflow-hidden rounded-2xl border border-amber-300/25 bg-gradient-to-br from-amber-400/20 to-emerald-400/10 p-5 text-center shadow-lg shadow-black/20">
-            <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/40">Рекомендованное действие</p>
-            <p className="mt-2 font-display text-3xl font-bold text-amber-300">
-              {result.recommended_sizing || result.action}
-            </p>
-          </div>
-        </div>
-      )}
+      </div>
+      <div className="grid grid-cols-2 border-t border-white/10">
+        <button type="button" onClick={onEditFlop} className="p-3 text-xs font-bold text-slate-300">Изменить флоп</button>
+        <button type="button" onClick={onNextHand} className="border-l border-white/10 bg-emerald-400/10 p-3 text-xs font-bold text-emerald-300">Следующая раздача</button>
+      </div>
     </section>
   );
 }

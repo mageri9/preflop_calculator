@@ -12,7 +12,7 @@ type ActiveTab = 'preflop' | 'postflop';
 type PotType = 'SRP' | '3BP';
 type HeroRole = 'PFR' | 'PFC';
 type HeroPosition = 'IP' | 'OOP';
-type FacingAction = 'OPEN_2.5X' | 'LIMP' | 'PUSH';
+type FacingAction = 'FIRST_IN' | 'OPEN_2.5X' | 'LIMP' | 'PUSH';
 
 export default function App() {
   const { session, loading, error, triggerNextHand, updateTableSize, updateSession } = usePokerSession();
@@ -21,7 +21,7 @@ export default function App() {
   const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string>();
-  const [facingAction, setFacingAction] = useState<FacingAction>('OPEN_2.5X');
+  const [facingAction, setFacingAction] = useState<FacingAction>('FIRST_IN');
   const [flopCards, setFlopCards] = useState<string[]>([]);
   const [postflopResult, setPostflopResult] = useState<DecisionResult | null>(null);
   const [postflopLoading, setPostflopLoading] = useState(false);
@@ -31,16 +31,18 @@ export default function App() {
   const [heroPosition, setHeroPosition] = useState<HeroPosition>('IP');
   const preflopRequestId = useRef(0);
   const postflopRequestId = useRef(0);
-  const isTelegram = Boolean(window.Telegram?.WebApp?.initData);
 
-  const handleSelectCombo = async (combo: string, action = facingAction) => {
+  const handleSelectCombo = async (combo: string) => {
     const requestId = ++preflopRequestId.current;
     setSelectedCombo(combo);
     setDecisionLoading(true);
     setDecisionError(undefined);
 
     try {
-      const result = await apiClient.getPreflopDecision({ hero_combo: combo, facing_action: action });
+      const result = await apiClient.getPreflopDecision({
+        hero_combo: combo,
+        facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
+      });
       if (requestId === preflopRequestId.current) setDecisionResult(result);
     } catch (requestError) {
       if (requestId === preflopRequestId.current) {
@@ -52,9 +54,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    const webApp = window.Telegram?.WebApp;
-    webApp?.ready();
-    webApp?.expand();
+    window.Telegram?.WebApp?.ready();
+    window.Telegram?.WebApp?.expand();
   }, []);
 
   useEffect(() => {
@@ -68,166 +69,135 @@ export default function App() {
     const requestId = ++postflopRequestId.current;
     setPostflopLoading(true);
     setPostflopError(undefined);
-
-    void apiClient
-      .getPostflopDecision({
-        hero_cards: selectedCombo,
-        flop_cards: flopCards,
-        pot_type: potType,
-        hero_role: heroRole,
-        hero_position: heroPosition,
-      })
-      .then((result) => {
-        if (requestId === postflopRequestId.current) setPostflopResult(result);
-      })
-      .catch((requestError: unknown) => {
-        if (requestId === postflopRequestId.current) {
-          setPostflopResult(null);
-          setPostflopError(requestError instanceof Error ? requestError.message : 'Не удалось получить postflop-решение');
-        }
-      })
-      .finally(() => {
-        if (requestId === postflopRequestId.current) setPostflopLoading(false);
-      });
+    void apiClient.getPostflopDecision({
+      hero_cards: selectedCombo,
+      flop_cards: flopCards,
+      pot_type: potType,
+      hero_role: heroRole,
+      hero_position: heroPosition,
+    }).then((result) => {
+      if (requestId === postflopRequestId.current) setPostflopResult(result);
+    }).catch((requestError: unknown) => {
+      if (requestId === postflopRequestId.current) {
+        setPostflopResult(null);
+        setPostflopError(requestError instanceof Error ? requestError.message : 'Не удалось получить постфлоп-решение');
+      }
+    }).finally(() => {
+      if (requestId === postflopRequestId.current) setPostflopLoading(false);
+    });
   }, [flopCards, selectedCombo, potType, heroRole, heroPosition]);
 
-  const tableControls = session ? (
-    <TableControls
-      session={session}
-      onNextHand={() => void triggerNextHand()}
-      onChangeTableSize={(size) => void updateTableSize(size)}
-      onUpdateSession={(payload) => void updateSession(payload)}
-      isLoading={loading}
+  const table = session && (
+    <PokerTableMap
+      tableSize={session.table_size}
+      btnPosition={session.btn_position}
+      heroSeat={session.hero_seat}
+      heroPositionLabel={session.hero_position_label}
     />
-  ) : (
-    <div className="py-12 text-center text-white/50">Загрузка сессии…</div>
   );
 
   return (
-    <main className="min-h-screen px-3 py-6 sm:px-5 sm:py-8">
-      <section className="mx-auto w-full max-w-2xl animate-rise overflow-hidden rounded-[2rem] border border-white/10 bg-ink/90 shadow-card backdrop-blur">
-        <header className="relative overflow-hidden border-b border-white/10 px-6 pb-6 pt-8">
-          <div className="absolute -right-8 -top-16 h-44 w-44 rounded-full bg-mint/10 blur-2xl" />
-          <div className={`mb-5 inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] ${isTelegram ? 'bg-mint/15 text-mint' : 'bg-amber/15 text-amber'}`}>
-            {isTelegram ? 'Telegram Mini App' : 'Dev Mode (браузер)'}
-          </div>
-          <p className="text-sm uppercase tracking-[0.3em] text-white/40">Table assistant</p>
-          <h1 className="mt-2 font-display text-4xl text-cream">Poker Calculator</h1>
+    <main className="flex h-screen max-h-screen flex-col justify-between overflow-hidden bg-slate-950 p-2 font-sans text-slate-100">
+      <header className="mx-auto grid w-full max-w-[360px] grid-cols-2 rounded-lg bg-slate-900 p-1">
+        {([['preflop', 'ПРЕФЛОП'], ['postflop', 'ПОСТФЛОП']] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`rounded-md py-1.5 text-[11px] font-bold tracking-wider transition ${activeTab === tab ? 'bg-amber-400 text-black' : 'text-slate-500 hover:text-slate-200'}`}
+            aria-pressed={activeTab === tab}
+          >
+            {label}
+          </button>
+        ))}
+      </header>
 
-          <div className="relative mt-6 grid grid-cols-2 rounded-xl border border-white/10 bg-black/20 p-1">
-            {([
-              ['preflop', 'Preflop'],
-              ['postflop', 'Postflop'],
-            ] as const).map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`rounded-lg px-4 py-2.5 text-sm font-black transition ${activeTab === tab ? 'bg-amber-400 text-amber-950 shadow-lg' : 'text-white/50 hover:text-white'}`}
-                aria-pressed={activeTab === tab}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </header>
+      <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-1 overflow-hidden py-1">
+        {error && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{error}</div>}
 
-        <div className="p-4 sm:p-6">
-          {error && <div className="mb-5 rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">{error}</div>}
-
-          {activeTab === 'preflop' ? (
-            <div className="space-y-6">
-              {session && (
-                <PokerTableMap
-                  tableSize={session.table_size}
-                  btnPosition={session.btn_position}
-                  heroSeat={session.hero_seat}
-                  heroPositionLabel={session.hero_position_label}
-                />
-              )}
-              {tableControls}
-
-              <section>
-                <div className="mb-3 flex items-end justify-between">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">Пресеты действий</p>
-                    <h2 className="font-display text-2xl text-cream">Стартовые руки</h2>
-                  </div>
-                  {selectedCombo && <span className="rounded-lg bg-amber-400 px-2.5 py-1 text-sm font-black text-amber-950">{selectedCombo}</span>}
-                </div>
-                <div className="mb-4 grid grid-cols-3 gap-2">
-                  {([
-                    ['OPEN_2.5X', 'Open 2.5x'],
-                    ['LIMP', 'Limp'],
-                    ['PUSH', 'Push'],
-                  ] as const).map(([action, label]) => (
-                    <button
-                      key={action}
-                      type="button"
-                      disabled={decisionLoading}
-                      onClick={() => {
-                        setFacingAction(action);
-                        if (selectedCombo) void handleSelectCombo(selectedCombo, action);
-                      }}
-                      className={`rounded-lg px-2 py-2 text-xs font-black uppercase transition disabled:opacity-50 ${
-                        facingAction === action
-                          ? 'bg-emerald-400 text-emerald-950'
-                          : 'bg-white/[0.06] text-white/60 hover:bg-white/10'
-                      }`}
-                      aria-pressed={facingAction === action}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <Matrix13x13
-                  activeRangeStr={decisionResult?.range_str}
-                  selectedCombo={selectedCombo}
-                  onSelectCombo={(combo) => void handleSelectCombo(combo)}
-                  isLoading={decisionLoading}
-                />
-              </section>
-
-              {decisionError && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">{decisionError}</div>}
-              {decisionResult && (
-                <div className="flex items-center justify-between rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-white/40">Рекомендация</p>
-                    <p className="mt-1 text-xl font-extrabold text-amber-300">{decisionResult.action}</p>
-                  </div>
-                  <p className="text-right text-sm text-cream">
-                    <span className="block font-bold">{selectedCombo}</span>
-                    <span className="text-white/50">{decisionResult.range_stats?.percentage ?? 0}% диапазона</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {tableControls}
-              {!selectedCombo && (
-                <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-                  Сначала выберите руку Хиро во вкладке Preflop.
-                </div>
-              )}
-              <FlopPicker flopCards={flopCards} onFlopChange={setFlopCards} heroCombo={selectedCombo} />
-              {postflopError && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">{postflopError}</div>}
-              <PostflopView
-                result={postflopResult}
-                potType={potType}
-                heroRole={heroRole}
-                heroPosition={heroPosition}
-                onUpdateContext={(payload) => {
-                  if (payload.potType) setPotType(payload.potType);
-                  if (payload.heroRole) setHeroRole(payload.heroRole);
-                  if (payload.heroPosition) setHeroPosition(payload.heroPosition);
-                }}
-                isLoading={postflopLoading}
+        {activeTab === 'preflop' ? (
+          <div className="flex min-h-0 flex-col gap-1">
+            {table}
+            {session && (
+              <TableControls
+                session={session}
+                onNextHand={() => void triggerNextHand()}
+                onChangeTableSize={(size) => void updateTableSize(size)}
+                onUpdateSession={(payload) => void updateSession(payload)}
+                isLoading={loading}
               />
+            )}
+            <Matrix13x13
+              activeRangeStr={decisionResult?.range_str}
+              selectedCombo={selectedCombo}
+              onSelectCombo={(combo) => void handleSelectCombo(combo)}
+              isLoading={decisionLoading}
+            />
+            <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Ситуация
+              <select
+                value={facingAction}
+                onChange={(event) => {
+                  setFacingAction(event.target.value as FacingAction);
+                  setDecisionResult(null);
+                }}
+                className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
+              >
+                <option value="FIRST_IN">Первое слово / Open</option>
+                <option value="OPEN_2.5X">Против Open 2.5x</option>
+                <option value="LIMP">Против Limp</option>
+                <option value="PUSH">Против Push</option>
+              </select>
+            </label>
+            {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
+            <div className="mx-auto flex w-full max-w-[360px] items-center justify-between rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-300">
+              <span>
+              {decisionLoading
+                ? 'РЕШЕНИЕ: ...'
+                : decisionResult
+                  ? `РЕШЕНИЕ: ${decisionResult.action} (${decisionResult.range_stats?.percentage ?? 0}% рук).`
+                  : 'РЕШЕНИЕ: —'}
+              </span>
+              {decisionResult && !['FOLD', 'PUSH'].includes(decisionResult.action) && (
+                <button type="button" onClick={() => setActiveTab('postflop')} className="rounded-md bg-amber-400 px-2 py-1 text-[10px] text-black">К флопу</button>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-col gap-2 overflow-auto">
+            {table}
+            {!postflopResult && <FlopPicker flopCards={flopCards} onFlopChange={setFlopCards} />}
+            {postflopError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{postflopError}</div>}
+            <PostflopView
+              result={postflopResult}
+              flopCards={flopCards}
+              heroCombo={selectedCombo}
+              stackBB={session?.stack_bb ?? 0}
+              potType={potType}
+              heroRole={heroRole}
+              heroPosition={heroPosition}
+              onUpdateContext={(payload) => {
+                if (payload.potType) setPotType(payload.potType);
+                if (payload.heroRole) setHeroRole(payload.heroRole);
+                if (payload.heroPosition) setHeroPosition(payload.heroPosition);
+              }}
+              isLoading={postflopLoading}
+              onEditFlop={() => {
+                setPostflopResult(null);
+                setFlopCards([]);
+              }}
+              onNextHand={() => {
+                setFlopCards([]);
+                setPostflopResult(null);
+                setSelectedCombo(undefined);
+                setDecisionResult(null);
+                setActiveTab('preflop');
+                void triggerNextHand();
+              }}
+            />
+          </div>
+        )}
+      </div>
     </main>
   );
 }

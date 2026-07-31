@@ -42,7 +42,7 @@ export const apiClient = {
   getSession: () => request<TableSession>('/session'),
   nextHand: () => post<TableSession>('/session/next-hand'),
   setTableSize: (size: number) =>
-    post<TableSession>('/session/table-size', { size }),
+    post<TableSession>('/session/table-size', { table_size: size }),
   updateSession: (payload: Partial<TableSession>) =>
     post<TableSession>('/session/update', payload),
   getPreflopDecision: (payload: PreflopDecisionRequest) =>

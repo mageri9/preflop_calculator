@@ -5,6 +5,7 @@ from src.engine.postflop_evaluator import (
     classify_flop_texture,
     classify_hand_bucket,
     parse_cards,
+    resolve_hero_cards,
 )
 
 
@@ -37,3 +38,11 @@ def test_overpair_is_tptk() -> None:
 def test_nut_flush_draw_and_top_pair_priority() -> None:
     assert classify_hand_bucket("AhKh", "Qh7h2c") == "NUT_DRAW"
     assert classify_hand_bucket("AhKd", "Kh7h2c") == "TPTK"
+
+
+def test_matrix_combo_is_resolved_around_blocked_flop_cards() -> None:
+    hero = resolve_hero_cards("AKo", ["Ks", "7d", "2c"])
+    assert len(hero) == 2
+    assert hero[0].rank != hero[1].rank
+    assert hero[0].suit != hero[1].suit
+    assert classify_hand_bucket("AKo", ["Ks", "7d", "2c"]) == "TPTK"

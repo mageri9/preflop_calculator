@@ -44,6 +44,36 @@ def parse_cards(cards_input: CardsInput) -> list[Card]:
     return result
 
 
+def resolve_hero_cards(hero_input: CardsInput, flop_input: CardsInput) -> list[Card]:
+    """Resolve either concrete cards or a matrix combo (AKo, AJs, 77)."""
+    if not isinstance(hero_input, str) or len(hero_input) not in (2, 3):
+        return parse_cards(hero_input)
+
+    first_rank, second_rank = hero_input[0].upper(), hero_input[1].upper()
+    suffix = hero_input[2:].lower()
+    if first_rank not in RANK_VALUES or second_rank not in RANK_VALUES or suffix not in ("", "s", "o"):
+        return parse_cards(hero_input)
+    if first_rank == second_rank and suffix:
+        raise ValueError("Pocket pairs cannot have a suitedness suffix")
+    if first_rank != second_rank and not suffix:
+        return parse_cards(hero_input)
+
+    blocked = set(parse_cards(flop_input))
+    candidates = [
+        (Card(RANK_VALUES[first_rank], first_suit), Card(RANK_VALUES[second_rank], second_suit))
+        for first_suit in SUITS
+        for second_suit in SUITS
+        if first_suit != second_suit or suffix == "s"
+    ]
+    for first, second in candidates:
+        is_suited = first.suit == second.suit
+        if first != second and first not in blocked and second not in blocked and (
+            (suffix == "s" and is_suited) or (suffix != "s" and not is_suited)
+        ):
+            return [first, second]
+    raise ValueError("No available concrete cards for hero combo")
+
+
 def _validate_cards(cards: list[Card], expected_count: int, label: str) -> None:
     if len(cards) != expected_count:
         raise ValueError(f"{label} must contain exactly {expected_count} cards")
@@ -102,8 +132,8 @@ def _has_straight(cards: list[Card]) -> bool:
 
 def classify_hand_bucket(hero_input: CardsInput, flop_input: CardsInput) -> str:
     """Classify hero's current hand, applying the documented bucket priority."""
-    hero = parse_cards(hero_input)
     flop = parse_cards(flop_input)
+    hero = resolve_hero_cards(hero_input, flop_input)
     _validate_cards(hero, 2, "Hero")
     _validate_cards(flop, 3, "Flop")
     cards = hero + flop
