@@ -14,7 +14,7 @@ export interface TableSession {
 }
 
 export interface PreflopDecisionRequest {
-  hero_combo: string;
+  hero_combo?: string;
   facing_action?: 'OPEN_2.5X' | 'LIMP' | 'PUSH';
   villain_position?: 'UTG' | 'MP' | 'CO' | 'BTN';
 }

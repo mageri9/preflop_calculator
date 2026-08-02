@@ -40,13 +40,13 @@ class DecisionEngine:
     def _range_result(
         *,
         action: str,
-        hero_combo: str,
+        hero_combo: Optional[str],
         range_str: str,
         details: dict[str, Any],
     ) -> DecisionResult:
-        in_range = is_combo_in_range(hero_combo, range_str)
+        in_range = is_combo_in_range(hero_combo, range_str) if hero_combo else False
         return DecisionResult(
-            action=action if in_range else "FOLD",
+            action=action if (in_range or hero_combo is None) else "FOLD",
             is_in_range=in_range,
             range_str=range_str,
             range_stats=get_range_stats(range_str),
@@ -75,7 +75,7 @@ class DecisionEngine:
         table_size: int,
         hero_position: str,
         stack_bb: float,
-        hero_combo: str,
+        hero_combo: Optional[str] = None,
         icm_stage: str = "NORMAL",
         has_ante: bool = True,
         opponent_style: str = "REG",
@@ -127,7 +127,6 @@ class DecisionEngine:
                 )
             row = session.scalar(statement.order_by(func.abs(model.stack_bb - stack_bb)))
 
-            # Ante-free data is a deliberate approximation when ante data is absent.
             if row is None and has_ante:
                 if icm_stage == "NORMAL":
                     fallback_statement = select(model).where(
@@ -159,7 +158,7 @@ class DecisionEngine:
                 range_str=row.range_str,
                 details=details,
             )
-        except Exception as exc:  # Invalid data must never break a recommendation request.
+        except Exception as exc:
             details["error"] = str(exc)
             return self._fallback("FOLD", details)
 
@@ -171,7 +170,7 @@ class DecisionEngine:
         villain_action: str,
         stack_bb: float,
         opponent_style: str,
-        hero_combo: str,
+        hero_combo: Optional[str] = None,
     ) -> DecisionResult:
         """Return the highest-priority response to a preflop villain action."""
         details: dict[str, Any] = {
@@ -196,19 +195,33 @@ class DecisionEngine:
                 return self._fallback("FOLD", details)
 
             details["strategy_stack_bb"] = row.stack_bb
-            for action, range_str in (
-                ("3BET_PUSH", row.range_3bet_push),
-                ("3BET_RAISE", row.range_3bet_raise),
-                ("CALL", row.range_call),
-            ):
-                if range_str and is_combo_in_range(hero_combo, range_str):
-                    return self._range_result(
-                        action=action,
-                        hero_combo=hero_combo,
-                        range_str=range_str,
-                        details=details,
-                    )
-            return DecisionResult("FOLD", False, None, None, None, None, False, details)
+            if hero_combo:
+                for action, range_str in (
+                    ("3BET_PUSH", row.range_3bet_push),
+                    ("3BET_RAISE", row.range_3bet_raise),
+                    ("CALL", row.range_call),
+                ):
+                    if range_str and is_combo_in_range(hero_combo, range_str):
+                        return self._range_result(
+                            action=action,
+                            hero_combo=hero_combo,
+                            range_str=range_str,
+                            details=details,
+                        )
+                return DecisionResult("FOLD", False, None, None, None, None, False, details)
+            else:
+                combined_ranges = [r for r in (row.range_3bet_push, row.range_3bet_raise, row.range_call) if r]
+                combined_str = ", ".join(combined_ranges) if combined_ranges else None
+                return DecisionResult(
+                    action="DEFEND",
+                    is_in_range=False,
+                    range_str=combined_str,
+                    range_stats=get_range_stats(combined_str) if combined_str else None,
+                    recommended_sizing=None,
+                    frequencies=None,
+                    is_fallback=False,
+                    details=details,
+                )
         except Exception as exc:
             details["error"] = str(exc)
             return self._fallback("FOLD", details)
@@ -223,7 +236,6 @@ class DecisionEngine:
         hero_position: str = "IP",
         stack_bb: float = 30.0,
     ) -> DecisionResult:
-        """Return the most frequent action for the evaluated flop strategy node."""
         details: dict[str, Any] = {
             "pot_type": pot_type,
             "hero_role": hero_role,

@@ -32,31 +32,44 @@ export default function App() {
   const preflopRequestId = useRef(0);
   const postflopRequestId = useRef(0);
 
-  const handleSelectCombo = async (combo: string) => {
-    const requestId = ++preflopRequestId.current;
-    setSelectedCombo(combo);
-    setDecisionLoading(true);
-    setDecisionError(undefined);
-
-    try {
-      const result = await apiClient.getPreflopDecision({
-        hero_combo: combo,
-        facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
-      });
-      if (requestId === preflopRequestId.current) setDecisionResult(result);
-    } catch (requestError) {
-      if (requestId === preflopRequestId.current) {
-        setDecisionError(requestError instanceof Error ? requestError.message : 'Не удалось получить решение');
-      }
-    } finally {
-      if (requestId === preflopRequestId.current) setDecisionLoading(false);
-    }
-  };
-
   useEffect(() => {
     window.Telegram?.WebApp?.ready();
     window.Telegram?.WebApp?.expand();
   }, []);
+
+  // Автоматическая загрузка актуального диапазона префлопа при смене позиции / ситуации / стека
+  useEffect(() => {
+    if (!session) return;
+
+    const requestId = ++preflopRequestId.current;
+    setDecisionLoading(true);
+    setDecisionError(undefined);
+
+    apiClient.getPreflopDecision({
+      hero_combo: selectedCombo,
+      facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
+    })
+      .then((result) => {
+        if (requestId === preflopRequestId.current) setDecisionResult(result);
+      })
+      .catch((requestError: unknown) => {
+        if (requestId === preflopRequestId.current) {
+          setDecisionError(requestError instanceof Error ? requestError.message : 'Не удалось получить диапазон');
+        }
+      })
+      .finally(() => {
+        if (requestId === preflopRequestId.current) setDecisionLoading(false);
+      });
+  }, [
+    session?.hero_position_label,
+    session?.table_size,
+    session?.stack_bb,
+    session?.icm_stage,
+    session?.has_ante,
+    session?.opponent_style,
+    facingAction,
+    selectedCombo,
+  ]);
 
   useEffect(() => {
     if (flopCards.length !== 3 || !selectedCombo) {
@@ -86,6 +99,21 @@ export default function App() {
       if (requestId === postflopRequestId.current) setPostflopLoading(false);
     });
   }, [flopCards, selectedCombo, potType, heroRole, heroPosition]);
+
+  const handleSelectCombo = (combo: string) => {
+    // Если нажимаем на уже выбранную руку — снимаем выбор
+    setSelectedCombo((prev) => (prev === combo ? undefined : combo));
+  };
+
+  const handleNextHand = () => {
+    setSelectedCombo(undefined);
+    void triggerNextHand();
+  };
+
+  const handleFacingActionChange = (action: FacingAction) => {
+    setFacingAction(action);
+    setSelectedCombo(undefined);
+  };
 
   const table = session && (
     <PokerTableMap
@@ -121,26 +149,29 @@ export default function App() {
             {session && (
               <TableControls
                 session={session}
-                onNextHand={() => void triggerNextHand()}
-                onChangeTableSize={(size) => void updateTableSize(size)}
-                onUpdateSession={(payload) => void updateSession(payload)}
+                onNextHand={handleNextHand}
+                onChangeTableSize={(size) => {
+                  setSelectedCombo(undefined);
+                  void updateTableSize(size);
+                }}
+                onUpdateSession={(payload) => {
+                  setSelectedCombo(undefined);
+                  void updateSession(payload);
+                }}
                 isLoading={loading}
               />
             )}
             <Matrix13x13
               activeRangeStr={decisionResult?.range_str}
               selectedCombo={selectedCombo}
-              onSelectCombo={(combo) => void handleSelectCombo(combo)}
+              onSelectCombo={handleSelectCombo}
               isLoading={decisionLoading}
             />
             <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Ситуация
               <select
                 value={facingAction}
-                onChange={(event) => {
-                  setFacingAction(event.target.value as FacingAction);
-                  setDecisionResult(null);
-                }}
+                onChange={(event) => handleFacingActionChange(event.target.value as FacingAction)}
                 className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
               >
                 <option value="FIRST_IN">Первое слово / Open</option>
@@ -152,13 +183,15 @@ export default function App() {
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
             <div className="mx-auto flex w-full max-w-[360px] items-center justify-between rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-300">
               <span>
-              {decisionLoading
-                ? 'РЕШЕНИЕ: ...'
-                : decisionResult
-                  ? `РЕШЕНИЕ: ${decisionResult.action} (${decisionResult.range_stats?.percentage ?? 0}% рук).`
-                  : 'РЕШЕНИЕ: —'}
+                {decisionLoading
+                  ? 'ЗАГРУЗКА...'
+                  : decisionResult
+                    ? selectedCombo
+                      ? `РУКА ${selectedCombo}: ${decisionResult.action} (${decisionResult.range_stats?.percentage ?? 0}% рук)`
+                      : `ДИАПАЗОН ${session?.hero_position_label ?? ''}: ${decisionResult.action} (${decisionResult.range_stats?.percentage ?? 0}% рук)`
+                    : 'ДИАПАЗОН: —'}
               </span>
-              {decisionResult && !['FOLD', 'PUSH'].includes(decisionResult.action) && (
+              {decisionResult && selectedCombo && !['FOLD', 'PUSH'].includes(decisionResult.action) && (
                 <button type="button" onClick={() => setActiveTab('postflop')} className="rounded-md bg-amber-400 px-2 py-1 text-[10px] text-black">К флопу</button>
               )}
             </div>

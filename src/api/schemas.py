@@ -17,10 +17,12 @@ class UpdateSessionRequest(BaseModel):
     has_ante: Optional[bool] = None
 
 class TableSizeRequest(BaseModel): table_size: int = Field(ge=2, le=9)
+
 class PreflopDecisionRequest(BaseModel):
-    hero_combo: str
+    hero_combo: Optional[str] = None  # Сделали необязательным
     facing_action: Optional[str] = None
     villain_position: Optional[str] = None
+
 class PostflopDecisionRequest(BaseModel):
     hero_cards: str | list[str]
     flop_cards: str | list[str]
