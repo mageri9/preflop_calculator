@@ -31,11 +31,14 @@ export function PostflopView(props: PostflopViewProps) {
   const sizingMatch = result?.recommended_sizing?.match(/(\d+)%/);
   const sizingPct = sizingMatch ? Number(sizingMatch[1]) : undefined;
   const sizingBB = sizingPct ? (potBB * sizingPct / 100).toFixed(1) : undefined;
+
   const frequencies = [
-    ['BET', result?.frequencies?.bet_pct ?? 0, 'bg-emerald-400'],
-    ['CHECK', result?.frequencies?.check_pct ?? 0, 'bg-sky-400'],
-    ['RAISE', result?.frequencies?.raise_pct ?? 0, 'bg-amber-400'],
+    ['BET', result?.frequencies?.BET ?? result?.frequencies?.bet_pct ?? 0, 'bg-amber-400'],
+    ['CHECK', result?.frequencies?.CHECK ?? result?.frequencies?.check_pct ?? 0, 'bg-sky-400'],
+    ['RAISE', result?.frequencies?.RAISE ?? result?.frequencies?.raise_pct ?? 0, 'bg-amber-400'],
+    ['CALL', result?.frequencies?.CALL ?? 0, 'bg-emerald-400'],
   ] as const;
+
   const current = { potType, heroRole, heroPosition };
 
   if (!result || isLoading) return <div className="rounded-2xl border border-dashed border-white/15 p-5 text-center text-sm text-slate-400">{isLoading ? 'Evaluator анализирует текстуру и категорию руки…' : 'Выберите три карты флопа.'}</div>;
@@ -60,7 +63,7 @@ export function PostflopView(props: PostflopViewProps) {
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">Рекомендуемое действие</p>
         <p className="mt-1 text-3xl font-black text-white">{result.action}</p>
         <div className="mt-4 space-y-3">
-          {frequencies.filter(([, value]) => value > 0).map(([label, value, color]) => <div key={label}><div className="mb-1 flex justify-between text-xs font-bold"><span>{label}</span><span>{value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-white/5"><div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${value}%` }} /></div></div>)}
+          {frequencies.filter(([, value]) => Number(value) > 0).map(([label, value, color]) => <div key={label}><div className="mb-1 flex justify-between text-xs font-bold"><span>{label}</span><span>{value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-white/5"><div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${value}%` }} /></div></div>)}
         </div>
         <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
           <p className="text-xs text-slate-400">Оптимальный сайзинг</p>

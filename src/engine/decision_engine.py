@@ -226,7 +226,12 @@ class DecisionEngine:
             if row is None:
                 return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else 30.0)
 
+            # Передаем отдельные поддиапазоны в details
             details["strategy_stack_bb"] = row.stack_bb
+            details["range_3bet_push"] = row.range_3bet_push
+            details["range_3bet_raise"] = row.range_3bet_raise
+            details["range_call"] = row.range_call
+
             if hero_combo:
                 action_options = (
                     ("3BET_PUSH", row.range_3bet_push),

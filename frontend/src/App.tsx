@@ -22,21 +22,21 @@ const getActionColorClass = (act: string, pct: number) => {
   switch (act) {
     case 'PUSH':
     case '3BET_PUSH':
-      return 'border border-rose-500 bg-rose-500/30 text-rose-300'; // КРАСНЫЙ ДЛЯ ПУША
+      return 'border border-rose-500 bg-rose-500/30 text-rose-300'; // КРАСНЫЙ
     case 'OPEN_RAISE':
     case 'RAISE':
     case '3BET_RAISE':
     case 'BET':
-      return 'border border-emerald-400 bg-emerald-500/20 text-emerald-300';
+      return 'border border-amber-400 bg-amber-500/20 text-amber-300'; // ЖЕЛТЫЙ ДЛЯ РЕЙЗА
     case 'ISOLATE':
       return 'border border-blue-400 bg-blue-500/25 text-blue-300'; // СИНИЙ ДЛЯ ИЗОЛЕЙТА
     case 'CALL':
     case 'DEFEND':
-      return 'border border-amber-400 bg-amber-500/20 text-amber-300';
+      return 'border border-emerald-400 bg-emerald-500/20 text-emerald-300'; // ЗЕЛЕНЫЙ ДЛЯ КОЛЛА
     case 'CHECK':
       return 'border border-cyan-400 bg-cyan-500/20 text-cyan-300';
     case 'FOLD':
-      return 'border border-stone-700/60 bg-stone-800/60 text-stone-500 opacity-60'; // ТУСКЛЫЙ "ФУФЛЫЖНЫЙ" ФОЛД
+      return 'border border-stone-700/60 bg-stone-800/60 text-stone-500 opacity-60';
     default:
       return 'border border-slate-700 bg-slate-800 text-slate-200';
   }
@@ -188,11 +188,18 @@ export default function App() {
               />
             )}
             <Matrix13x13
-              activeRangeStr={decisionResult?.range_str}
-              selectedCombo={selectedCombo}
-              onSelectCombo={handleSelectCombo}
-              isLoading={decisionLoading}
-            />
+  activeRangeStr={decisionResult?.range_str}
+  selectedCombo={selectedCombo}
+  onSelectCombo={handleSelectCombo}
+  isLoading={decisionLoading}
+  action={decisionResult?.action}
+  actionRanges={{
+    push: decisionResult?.details?.range_3bet_push,
+    raise: facingAction === 'LIMP' ? undefined : decisionResult?.details?.range_3bet_raise,
+    isolate: facingAction === 'LIMP' ? decisionResult?.details?.range_3bet_raise : undefined,
+    call: decisionResult?.details?.range_call,
+  }}
+/>
             <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Ситуация
               <select
