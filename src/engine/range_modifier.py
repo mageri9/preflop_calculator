@@ -22,8 +22,8 @@ from src.engine.range_matcher import (
 )
 
 ACTION_KEYS: Final[tuple[str, ...]] = ("push", "raise", "isolate", "call")
-SHOVE_TEMPERATURE: Final[float] = 4.0
-WIDE_TEMPERATURE: Final[float] = 9.0
+SHOVE_TEMPERATURE: Final[float] = 2.5
+WIDE_TEMPERATURE: Final[float] = 3.5
 ICM_TEMPERATURE_FACTOR: Final[float] = 0.85
 MIN_DISPLAY_FREQUENCY: Final[float] = 1.0
 ICM_BASE: Final[dict[str, float]] = {
@@ -64,7 +64,7 @@ def ante_expansion(context: RangeContext) -> float:
     players = max(2, min(10, context.table_size))
     dead_money = players * max(0.0, context.ante_bb)
     share = dead_money / (1.5 + dead_money)
-    return 0.05 + 0.05 * share
+    return 0.02 + 0.03 * share
 
 
 def icm_coefficient(stage: str, position_risk: float = 0.5) -> float:

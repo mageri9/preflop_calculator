@@ -1,3 +1,5 @@
+// frontend/src/utils/matrixPresentation.ts
+
 import type { CSSProperties } from 'react';
 import type { ActionRanges, RangeAction } from '../components/Matrix13x13';
 
@@ -27,14 +29,22 @@ export function getCellPresentation(
   expandedActive: Set<string>,
   action?: string,
 ): { style?: CSSProperties; inactive: boolean; title: string } {
+  // Проверяем, есть ли у нас точные данные частот от бэкенда
+  const hasFrequencyData = ACTION_ORDER.some(
+    (rangeAction) => Object.keys(actionRanges?.[rangeAction] ?? {}).length > 0,
+  );
+
   const frequencies = ACTION_ORDER.map((rangeAction) => ({
     action: rangeAction,
     value: clampFrequency(actionRanges?.[rangeAction]?.[combo]),
   })).filter(({ value }) => value > 0);
 
-  if (!frequencies.length && expandedActive.has(combo)) {
+  // ИСПРАВЛЕНИЕ: Аварийный фолбэк применяем ТОЛЬКО если данных о частотах нет вообще
+  if (!frequencies.length && !hasFrequencyData && expandedActive.has(combo)) {
     frequencies.push({ action: actionFromDecision(action), value: 100 });
   }
+
+  // Если у комбинации 0% частоты — она 100% FOLD (тёмно-серая)
   if (!frequencies.length) return { inactive: true, title: `${combo}: FOLD 100%` };
 
   let cursor = 0;

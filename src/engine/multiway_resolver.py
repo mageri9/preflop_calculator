@@ -270,20 +270,27 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
 
     can_raise = pot.cost_to_call_bb < stack_bb
 
-    call_margin = (num_opponents - 1) * 2.0
+    # Повышаем требуемый запас эквити для колла и рейза в мультипотах:
+    call_margin = 3.0 + (num_opponents - 1) * 3.0
     call_threshold = odds + call_margin
 
     if stack_bb <= 20.0 or is_facing_push:
         aggressive_action: Literal["push", "raise", "isolate"] = "push"
-        push_margin = 16.0 + (num_opponents - 1) * 4.0
+        push_margin = (
+            22.0 + (num_opponents - 1) * 5.0
+        )
         aggressive_threshold = odds + push_margin
     elif is_facing_limp:
         aggressive_action = "isolate"
-        isolate_margin = 10.0 + (num_opponents - 1) * 3.0
+        isolate_margin = (
+            14.0 + (num_opponents - 1) * 4.0
+        )
         aggressive_threshold = odds + isolate_margin
     else:
         aggressive_action = "raise"
-        raise_margin = 18.0 + (num_opponents - 1) * 4.0
+        raise_margin = (
+            22.0 + (num_opponents - 1) * 5.0
+        )
         aggressive_threshold = odds + raise_margin
 
     hero_context = RangeContext(
