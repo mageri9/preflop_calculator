@@ -167,6 +167,7 @@ export default function App() {
 
   const handleNextHand = () => {
     setSelectedCombo(undefined);
+    setFacingAction('FIRST_IN');
     void triggerNextHand();
   };
 
@@ -355,7 +356,7 @@ export default function App() {
                 setSelectedCombo(undefined);
                 setDecisionResult(null);
                 setActiveTab('preflop');
-                void triggerNextHand();
+                handleNextHand();
               }}
             />
           </div>
