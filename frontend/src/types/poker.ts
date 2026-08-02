@@ -15,7 +15,7 @@ export interface TableSession {
 
 export interface PreflopDecisionRequest {
   hero_combo?: string;
-  facing_action?: 'OPEN_2.5X' | 'LIMP' | 'PUSH';
+  facing_action?: 'OPEN_2.5X' | 'LIMP' | 'PUSH' | 'THREE_BET';
   villain_position?: 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
 }
 
@@ -27,7 +27,7 @@ export interface PostflopDecisionRequest {
   hero_cards: string | string[];
   flop_cards: string | string[];
   pot_type?: 'SRP' | '3BP';
-  hero_role?: 'PFR' | 'PFC';
+  hero_role?: 'PFR' | 'PFC' | 'CALLER';
   hero_position?: 'IP' | 'OOP';
 }
 
@@ -36,8 +36,13 @@ export interface DecisionResult {
     | 'PUSH'
     | 'FOLD'
     | 'OPEN_RAISE'
+    | 'OPEN_LIMP'
     | '3BET_PUSH'
     | '3BET_RAISE'
+    | '4BET_PUSH'
+    | '4BET_RAISE'
+    | 'SQUEEZE'
+    | 'SQUEEZE_PUSH'
     | 'ISOLATE'
     | 'CALL'
     | 'BET'

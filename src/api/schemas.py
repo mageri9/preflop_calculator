@@ -40,7 +40,7 @@ class TableSizeRequest(BaseModel):
 
 class PreflopDecisionRequest(BaseModel):
     hero_combo: Optional[str] = None
-    facing_action: Optional[Literal["OPEN_2.5X", "LIMP", "PUSH"]] = None
+    facing_action: Optional[Literal["OPEN_2.5X", "LIMP", "PUSH", "THREE_BET"]] = None
     villain_position: Optional[
         Literal["UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB", "BTN/SB"]
     ] = None

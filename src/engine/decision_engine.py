@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from src.db.models import (
     FacingActionRange,
     IcmPushFold,
+    LimpRange,
     NashPushFold,
     OpenRange,
     PostflopStrategy,
@@ -205,6 +206,26 @@ class DecisionEngine:
                 if row is None:
                     return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
+                # Check if Hero position is SB / BTN/SB and hand is in LimpRange for open limp
+                if hero_position in ("SB", "BTN/SB") and hero_combo:
+                    limp_row = _nearest_by_stack(
+                        session, LimpRange, stack_bb, position=hero_position, style=opponent_style
+                    )
+                    if limp_row and is_combo_in_range(hero_combo, limp_row.range_str) and not is_combo_in_range(hero_combo, row.range_str):
+                        action_ranges = self._ranges(
+                            {"isolate": limp_row.range_str, "raise": row.range_str},
+                            table_size=table_size, icm_stage=icm_stage,
+                            has_ante=has_ante, opponent_style=opponent_style,
+                            spot_kind="wide",
+                        )
+                        return self._range_result(
+                            action="OPEN_LIMP",
+                            hero_combo=hero_combo,
+                            range_str=limp_row.range_str,
+                            details=details,
+                            action_ranges=action_ranges,
+                        )
+
                 action_ranges = self._ranges(
                     {"raise": row.range_str}, table_size=table_size, icm_stage=icm_stage,
                     has_ante=has_ante, opponent_style=opponent_style,
@@ -301,9 +322,10 @@ class DecisionEngine:
             "has_ante": has_ante,
         }
         try:
+            lookup_action = "OPEN_2.5X" if villain_action == "THREE_BET" else villain_action
             row = _nearest_by_stack(
                 session, FacingActionRange, stack_bb, hero_position=hero_position,
-                villain_position=villain_position, villain_action=villain_action,
+                villain_position=villain_position, villain_action=lookup_action,
                 opponent_style=opponent_style,
             )
             if row is None:
@@ -332,11 +354,26 @@ class DecisionEngine:
                 details["equity_source"] = f"{villain_position} {opponent_style} range"
 
             if hero_combo:
-                action_options = (
-                    ("3BET_PUSH", "push"),
-                    ("ISOLATE" if villain_action == "LIMP" else "3BET_RAISE", raise_key),
-                    ("CALL", "call"),
-                )
+                if villain_action == "THREE_BET":
+                    action_options = (
+                        ("4BET_PUSH", "push"),
+                        ("4BET_RAISE", raise_key),
+                        ("CALL", "call"),
+                    )
+                elif villain_action == "LIMP":
+                    call_label = "CHECK" if hero_position == "BB" else "CALL"
+                    action_options = (
+                        ("PUSH", "push"),
+                        ("ISOLATE", raise_key),
+                        (call_label, "call"),
+                    )
+                else: # OPEN_2.5X or PUSH
+                    action_options = (
+                        ("3BET_PUSH", "push"),
+                        ("3BET_RAISE", raise_key),
+                        ("CALL", "call"),
+                    )
+
                 frequencies = action_frequencies(hero_combo, action_ranges)
                 selected_action, selected_key = max(
                     action_options,
@@ -416,25 +453,52 @@ class DecisionEngine:
                 )
             )
             equity_pct = POSTFLOP_BUCKET_EQUITY.get(evaluation["bucket_id"], 50.0)
-            if row is None:
-                return self._fallback("CHECK", details, equity_pct)
+
+            if row is not None:
+                check_pct = row.action_check_pct
+                bet_pct = row.action_bet_pct
+                raise_pct = row.action_raise_pct
+            else:
+                check_pct, bet_pct, raise_pct = 50, 0, 0
+
+            if hero_role in ("PFC", "CALLER"):
+                # Preflop Caller facing bet/action
+                if evaluation["bucket_id"] == "MONSTER":
+                    call_pct, raise_pct, fold_pct = 55, 45, 0
+                elif evaluation["bucket_id"] in ("TPTK", "TPGK", "NUT_DRAW"):
+                    call_pct, raise_pct, fold_pct = 85, 15, 0
+                elif evaluation["bucket_id"] in ("WEAK_PAIR", "GUTSHOT"):
+                    call_pct, raise_pct, fold_pct = 70, 0, 30
+                else:
+                    call_pct, raise_pct, fold_pct = 10, 0, 90
+                check_pct, bet_pct = 0, 0
+                sizing = "CALL" if call_pct >= max(raise_pct, fold_pct) else "RAISE_3X" if raise_pct > fold_pct else "FOLD"
+            else:
+                call_pct, fold_pct = 0, 0
+                sizing = row.recommended_sizing if row else "CHECK"
 
             frequencies = {
-                "check_pct": row.action_check_pct,
-                "bet_pct": row.action_bet_pct,
-                "raise_pct": row.action_raise_pct,
+                "check_pct": check_pct,
+                "bet_pct": bet_pct,
+                "call_pct": call_pct,
+                "raise_pct": raise_pct,
+                "fold_pct": fold_pct,
             }
-            action = max(
-                (("CHECK", frequencies["check_pct"]), ("BET", frequencies["bet_pct"]),
-                 ("RAISE", frequencies["raise_pct"])),
-                key=lambda item: item[1],
-            )[0]
+            action_candidates = [
+                ("CHECK", check_pct),
+                ("BET", bet_pct),
+                ("CALL", call_pct),
+                ("RAISE", raise_pct),
+                ("FOLD", fold_pct),
+            ]
+            action = max(action_candidates, key=lambda item: item[1])[0]
+
             return DecisionResult(
                 action=action,
                 is_in_range=True,
                 range_str=None,
                 range_stats=None,
-                recommended_sizing=row.recommended_sizing,
+                recommended_sizing=sizing,
                 frequencies=frequencies,
                 equity_pct=equity_pct,
                 is_fallback=False,

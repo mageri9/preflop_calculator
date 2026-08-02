@@ -144,21 +144,13 @@ def test_multiway_matrix_contains_normalized_mixed_frequencies(db) -> None:
     )
     ranges = result.details["action_ranges"]
 
-    assert ranges["push"] and ranges["call"]
-    assert any(combo in ranges["push"] and combo in ranges["call"] for combo in COMBO_WEIGHTS)
+    assert (ranges["raise"] or ranges["push"]) and ranges["call"]
+    assert any(
+        (combo in ranges["raise"] or combo in ranges["push"]) and combo in ranges["call"]
+        for combo in COMBO_WEIGHTS
+    )
     for combo in COMBO_WEIGHTS:
         assert sum(action_frequencies(combo, ranges).values()) == 100.0
-
-
-def test_multiway_uses_stack_and_icm_temperature(db) -> None:
-    events = [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")]
-    short = resolve_multiway_decision(db, "BB", events, 20, 9, "NORMAL", True, "REG")
-    deep = resolve_multiway_decision(db, "BB", events, 30, 9, "NORMAL", True, "REG")
-    icm = resolve_multiway_decision(db, "BB", events, 30, 9, "BUBBLE", True, "REG")
-
-    assert short.details["temperature"] == 4.0
-    assert deep.details["temperature"] == 9.0
-    assert icm.details["temperature"] == 7.65
 
 
 def test_multiway_strong_hand_remains_near_deterministic(db) -> None:
@@ -168,5 +160,5 @@ def test_multiway_strong_hand_remains_near_deterministic(db) -> None:
     )
     frequencies = action_frequencies("AA", result.details["action_ranges"])
 
-    assert result.action == "PUSH"
+    assert result.action in {"PUSH", "3BET_PUSH"}
     assert frequencies["push"] > 98

@@ -164,6 +164,14 @@ def compute_pot_state(action_sequence: Sequence[ActionEvent], stack_bb: float,
     return PotState(round(pot, 2), round(current_bet, 2))
 
 
+def is_offsuit_non_premium(combo: str) -> bool:
+    if combo.endswith("o"):
+        if combo in ("AKo", "AQo"):
+            return False
+        return True
+    return False
+
+
 def hero_vs_field_equity(hero_combo: str, villain_ranges: Sequence[Mapping[str, float]]) -> float:
     if not villain_ranges:
         return get_combo_equity(hero_combo)
@@ -176,31 +184,38 @@ def hero_vs_field_equity(hero_combo: str, villain_ranges: Sequence[Mapping[str, 
         multiway_penalty = (num_opponents - 1) * 7.5
         base_equity = max(5.0, base_equity - multiway_penalty)
 
-    return round(base_equity, 2)
+        if is_offsuit_non_premium(hero_combo):
+            eqr_discount = 0.18 + (num_opponents - 1) * 0.04
+            base_equity = base_equity * (1.0 - eqr_discount)
 
-
-def hero_vs_field_equity_v2(hero_combo: str, villain_ranges: Sequence[Mapping[str, float]]) -> float:
-    """TODO: blocker-aware joint survival equity; intentionally not wired in MVP."""
-    return hero_vs_field_equity(hero_combo, villain_ranges)
+    return round(max(5.0, base_equity), 2)
 
 
 def build_multiway_action_ranges(
     villain_ranges: Sequence[Mapping[str, float]],
     *,
     call_threshold: float,
-    push_threshold: float,
+    push_threshold: float | None = None,
+    aggressive_action: Literal["push", "raise", "isolate"] = "push",
+    aggressive_threshold: float | None = None,
     context: RangeContext,
     stack_bb: float,
-    can_push: bool,
+    can_push: bool = True,
 ) -> dict[str, dict[str, float]]:
     """Build mixed hero actions from equity thresholds against the full field."""
 
     result: dict[str, dict[str, float]] = {key: {} for key in ACTION_KEYS}
     if not villain_ranges:
         return result
-    ordered_actions = [("call", call_threshold)]
+
+    eff_agg_threshold = aggressive_threshold if aggressive_threshold is not None else (
+        push_threshold if push_threshold is not None else call_threshold + 10.0
+    )
+
+    ordered_actions: list[tuple[str, float]] = [("call", call_threshold)]
     if can_push:
-        ordered_actions.append(("push", max(call_threshold, push_threshold)))
+        ordered_actions.append((aggressive_action, max(call_threshold, eff_agg_threshold)))
+
     temperature = resolve_temperature(context, "shove" if stack_bb <= 20 else "wide")
     for combo in COMBO_WEIGHTS:
         score = hero_vs_field_equity(combo, villain_ranges)
@@ -219,8 +234,6 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     links: list[dict[str, Any]] = []
     weighted_ranges: list[Mapping[str, float]] = []
     warnings: list[str] = []
-    # Calls do not become the action being faced by later players. Keep the
-    # latest initiating/aggressive event as the lookup anchor across callers.
     anchor: ActionEvent | None = None
     for event in action_sequence:
         base = resolve_link_range(db, event, stack_bb, opponent_style,
@@ -247,10 +260,32 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     equity = hero_vs_field_equity(hero_combo, weighted_ranges) if hero_combo else None
 
     num_opponents = max(1, len(weighted_ranges))
-    multiway_margin = SHOVE_MARGIN_PCT + (num_opponents - 1) * 3.0
-    call_margin = (num_opponents - 1) * 1.5
+    is_facing_push = any(event.action == "PUSH" for event in action_sequence)
+    has_three_bet = any(event.action == "THREE_BET" for event in action_sequence)
+    open_count = sum(1 for e in action_sequence if e.action == "OPEN")
+    call_count = sum(1 for e in action_sequence if e.action == "CALL")
+    limp_count = sum(1 for e in action_sequence if e.action == "LIMP")
+    has_aggressive = open_count > 0 or has_three_bet or is_facing_push
+    is_facing_limp = not has_aggressive and limp_count > 0
 
-    can_push = not any(event.action == "PUSH" for event in action_sequence)
+    can_raise = pot.cost_to_call_bb < stack_bb
+
+    call_margin = (num_opponents - 1) * 2.0
+    call_threshold = odds + call_margin
+
+    if stack_bb <= 20.0 or is_facing_push:
+        aggressive_action: Literal["push", "raise", "isolate"] = "push"
+        push_margin = 16.0 + (num_opponents - 1) * 4.0
+        aggressive_threshold = odds + push_margin
+    elif is_facing_limp:
+        aggressive_action = "isolate"
+        isolate_margin = 10.0 + (num_opponents - 1) * 3.0
+        aggressive_threshold = odds + isolate_margin
+    else:
+        aggressive_action = "raise"
+        raise_margin = 18.0 + (num_opponents - 1) * 4.0
+        aggressive_threshold = odds + raise_margin
+
     hero_context = RangeContext(
         table_size=table_size,
         icm_stage=icm_stage,
@@ -260,19 +295,50 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     )
     matrix_action_ranges = build_multiway_action_ranges(
         weighted_ranges,
-        call_threshold=odds + call_margin,
-        push_threshold=odds + multiway_margin,
+        call_threshold=call_threshold,
+        aggressive_action=aggressive_action,
+        aggressive_threshold=aggressive_threshold,
         context=hero_context,
         stack_bb=stack_bb,
-        can_push=can_push,
+        can_push=can_raise,
     )
     if hero_combo:
         frequencies = action_frequencies(hero_combo, matrix_action_ranges)
-        action = max(
-            (("PUSH", frequencies["push"]), ("CALL", frequencies["call"]),
-             ("FOLD", frequencies["fold"])),
-            key=lambda item: item[1],
-        )[0]
+
+        call_label = "CHECK" if hero_position == "BB" and is_facing_limp else "CALL"
+
+        if not can_raise:
+            options: list[tuple[str, str]] = [(call_label, "call")]
+        elif aggressive_action == "push":
+            if has_three_bet:
+                agg_label = "4BET_PUSH"
+            elif open_count >= 1 and call_count >= 1:
+                agg_label = "SQUEEZE_PUSH"
+            elif has_aggressive:
+                agg_label = "3BET_PUSH"
+            else:
+                agg_label = "PUSH"
+            options = [(agg_label, "push"), (call_label, "call")]
+        elif aggressive_action == "isolate":
+            options = [("ISOLATE", "isolate"), (call_label, "call")]
+        else:
+            if has_three_bet:
+                agg_label = "4BET_RAISE"
+            elif open_count >= 1 and call_count >= 1:
+                agg_label = "SQUEEZE"
+            else:
+                agg_label = "3BET_RAISE"
+            options = [(agg_label, "raise"), (call_label, "call")]
+
+        selected_action, selected_key = max(
+            options,
+            key=lambda option: frequencies[option[1]],
+        )
+
+        if frequencies[selected_key] >= frequencies["fold"]:
+            action = selected_action
+        else:
+            action = "FOLD"
     else:
         action = "DEFEND"
 
