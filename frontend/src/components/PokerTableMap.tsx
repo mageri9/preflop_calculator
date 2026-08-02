@@ -5,6 +5,23 @@ export interface PokerTableMapProps {
   heroPositionLabel: string;
 }
 
+const POSITION_MAP: Record<number, string[]> = {
+  9: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO'],
+  8: ['BTN', 'SB', 'BB', 'UTG', 'MP', 'MP+1', 'HJ', 'CO'],
+  7: ['BTN', 'SB', 'BB', 'UTG', 'MP', 'HJ', 'CO'],
+  6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+  5: ['BTN', 'SB', 'BB', 'UTG', 'CO'],
+  4: ['BTN', 'SB', 'BB', 'CO'],
+  3: ['BTN', 'SB', 'BB'],
+  2: ['BTN/SB', 'BB'],
+};
+
+function getPositionLabel(seat: number, btnPosition: number, tableSize: number): string {
+  const seatIndex = (seat - btnPosition + tableSize) % tableSize;
+  const labels = POSITION_MAP[tableSize] || POSITION_MAP[6];
+  return labels[seatIndex] || `S${seat}`;
+}
+
 export function PokerTableMap({
   tableSize,
   btnPosition,
@@ -13,52 +30,105 @@ export function PokerTableMap({
 }: PokerTableMapProps) {
   const seats = Array.from({ length: tableSize }, (_, index) => {
     const seat = index + 1;
+    // Хиро всегда располагается снизу по центру (angle = Math.PI / 2)
     const angle = Math.PI / 2 + ((seat - heroSeat) * Math.PI * 2) / tableSize;
+
+    const posLabel = getPositionLabel(seat, btnPosition, tableSize);
 
     return {
       seat,
-      seatLeft: 50 + Math.cos(angle) * 46,
-      seatTop: 50 + Math.sin(angle) * 43,
-      btnLeft: 50 + Math.cos(angle) * 32,
-      btnTop: 50 + Math.sin(angle) * 29,
+      posLabel,
+      seatLeft: 50 + Math.cos(angle) * 43,
+      seatTop: 50 + Math.sin(angle) * 38,
+      chipLeft: 50 + Math.cos(angle) * 28,
+      chipTop: 50 + Math.sin(angle) * 24,
     };
   });
 
   return (
-    <div className="relative mx-auto my-1 w-full max-w-[340px] px-2">
-      <div className="relative flex aspect-[2.4/1] w-full items-center justify-center rounded-[40px] border-2 border-emerald-500/40 bg-slate-900 shadow-lg">
-        <span className="font-mono text-xs font-bold tracking-wider text-emerald-400">
-          {heroPositionLabel.toLowerCase()}
-        </span>
+    <div className="relative mx-auto my-2 w-full max-w-[380px] px-2 select-none">
+      {/* Внешний кожаный борт стола */}
+      <div className="relative flex aspect-[2.1/1] w-full items-center justify-center rounded-[50px] border-[5px] border-[#2b180d] bg-[#1a0e08] p-2 shadow-[0_12px_30px_rgba(0,0,0,0.9)] ring-1 ring-amber-950/60">
 
-        {seats.map(({ seat, seatLeft, seatTop, btnLeft, btnTop }) => {
-          const isHero = seat === heroSeat;
-          const isButton = seat === btnPosition;
+        {/* Изумрудное покерное сукно */}
+        <div className="relative flex h-full w-full items-center justify-center rounded-[40px] border border-amber-400/30 bg-[radial-gradient(ellipse_at_center,_#0f4838_0%,_#07281f_65%,_#03140f_100%)] shadow-[inset_0_4px_25px_rgba(0,0,0,0.85)]">
 
-          return (
-            <div key={seat}>
-              {isButton && (
-                <span
-                  className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400 px-1 font-mono text-[8px] font-bold text-black"
-                  style={{ left: `${btnLeft}%`, top: `${btnTop}%` }}
+          {/* Водяной знак в центре стола */}
+          <div className="pointer-events-none flex flex-col items-center opacity-25">
+            <span className="text-xs tracking-[0.3em] text-emerald-300">♠ ♥ ♦ ♣</span>
+            <span className="mt-0.5 font-mono text-[8px] font-extrabold uppercase tracking-widest text-emerald-200">
+              {heroPositionLabel}
+            </span>
+          </div>
+
+          {/* Места игроков, баттон и блайнды */}
+          {seats.map(({ seat, posLabel, seatLeft, seatTop, chipLeft, chipTop }) => {
+            const isHero = seat === heroSeat;
+            const isButton = seat === btnPosition;
+            const isSB = posLabel === 'SB' || posLabel === 'BTN/SB';
+            const isBB = posLabel === 'BB';
+
+            return (
+              <div key={seat}>
+                {/* 3D Фишка Дилера (BTN) */}
+                {isButton && (
+                  <div
+                    className="pointer-events-none absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-amber-200 bg-gradient-to-b from-white via-slate-100 to-slate-300 font-mono text-[8px] font-black text-slate-950 shadow-[0_3px_6px_rgba(0,0,0,0.7)] ring-1 ring-black/40"
+                    style={{ left: `${chipLeft}%`, top: `${chipTop}%` }}
+                    title="Dealer Button"
+                  >
+                    D
+                  </div>
+                )}
+
+                {/* Фишка Малого Блайнда (SB) */}
+                {isSB && tableSize > 2 && !isButton && (
+                  <div
+                    className="pointer-events-none absolute z-20 flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-purple-300 bg-gradient-to-b from-purple-500 to-purple-800 font-mono text-[7px] font-extrabold text-white shadow-[0_2px_4px_rgba(0,0,0,0.6)] ring-1 ring-black/30"
+                    style={{ left: `${chipLeft}%`, top: `${chipTop}%` }}
+                    title="Small Blind"
+                  >
+                    SB
+                  </div>
+                )}
+
+                {/* Фишка Большого Блайнда (BB) */}
+                {isBB && (
+                  <div
+                    className="pointer-events-none absolute z-20 flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-amber-300 bg-gradient-to-b from-amber-400 to-amber-700 font-mono text-[7px] font-extrabold text-slate-950 shadow-[0_2px_4px_rgba(0,0,0,0.6)] ring-1 ring-black/30"
+                    style={{ left: `${chipLeft}%`, top: `${chipTop}%` }}
+                    title="Big Blind"
+                  >
+                    BB
+                  </div>
+                )}
+
+                {/* Аватарка с позицией прямо внутри круга */}
+                <div
+                  className="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center"
+                  style={{ left: `${seatLeft}%`, top: `${seatTop}%` }}
                 >
-                  btn
-                </span>
-              )}
-              <div
-                className={`absolute z-10 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-xs ${
-                  isHero
-                    ? 'scale-105 bg-emerald-600 font-bold text-white ring-2 ring-emerald-400'
-                    : 'border border-slate-700/60 bg-slate-800 text-slate-400'
-                }`}
-                style={{ left: `${seatLeft}%`, top: `${seatTop}%` }}
-                aria-label={isHero ? `Место ${seat}, Хиро` : `Место ${seat}`}
-              >
-                {seat}
+                  <div
+                    className={`relative flex h-8 w-8 items-center justify-center rounded-full font-mono text-[8.5px] font-black shadow-md transition-all ${
+                      isHero
+                        ? 'bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-950 text-white ring-2 ring-amber-300 shadow-[0_0_12px_rgba(52,211,153,0.6)] scale-110'
+                        : 'border border-slate-700/80 bg-gradient-to-b from-slate-800 to-slate-950 text-amber-300/90'
+                    }`}
+                  >
+                    <span className="truncate px-0.5">{posLabel}</span>
+
+                    {/* Плашка YOU над Хиро */}
+                    {isHero && (
+                      <span className="absolute -top-1.5 rounded-full bg-amber-400 px-1 py-[0.5px] font-mono text-[6px] font-black text-black shadow">
+                        YOU
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
