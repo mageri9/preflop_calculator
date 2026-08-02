@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import src.engine.multiway_resolver as multiway_resolver
 from src.db.seed_data import seed_tournament_data
 from src.engine.multiway_resolver import (
     ActionEvent,
@@ -71,6 +72,46 @@ def test_resolver_returns_pot_equity_and_modified_links(db) -> None:
     assert result.cost_to_call_bb == 2.5
     assert result.equity_pct is not None
     assert len(result.villain_link_ranges) == 2
+
+
+def test_callers_do_not_replace_original_aggressor_lookup_anchor(db, monkeypatch) -> None:
+    lookups: list[tuple[str, str | None, str | None]] = []
+    original = multiway_resolver.resolve_link_range
+
+    def recording_lookup(*args, **kwargs):
+        event = args[1]
+        lookups.append((event.action, kwargs.get("preceding_action"), kwargs.get("preceding_position")))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(multiway_resolver, "resolve_link_range", recording_lookup)
+    resolve_multiway_decision(
+        db, "BB",
+        [ActionEvent("UTG", "OPEN"), ActionEvent("MP", "CALL"),
+         ActionEvent("HJ", "CALL"), ActionEvent("CO", "THREE_BET")],
+        40, 9, "NORMAL", False, "REG", "AJs",
+    )
+
+    assert lookups[1:] == [
+        ("CALL", "OPEN", "UTG"),
+        ("CALL", "OPEN", "UTG"),
+        ("THREE_BET", "OPEN", "UTG"),
+    ]
+
+
+def test_each_link_receives_ante_and_icm_modifiers(db) -> None:
+    events = [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")]
+    baseline = resolve_multiway_decision(db, "BB", events, 30, 9, "NORMAL", False, "REG")
+    with_ante = resolve_multiway_decision(db, "BB", events, 30, 9, "NORMAL", True, "REG")
+    with_icm = resolve_multiway_decision(db, "BB", events, 30, 9, "BUBBLE", False, "REG")
+
+    assert all(
+        modified["combinations"] > base["combinations"]
+        for base, modified in zip(baseline.villain_link_ranges, with_ante.villain_link_ranges)
+    )
+    assert all(
+        modified["combinations"] < base["combinations"]
+        for base, modified in zip(baseline.villain_link_ranges, with_icm.villain_link_ranges)
+    )
 
 
 def test_missing_link_is_a_warning_not_an_exception(db) -> None:

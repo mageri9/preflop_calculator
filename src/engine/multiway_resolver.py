@@ -70,8 +70,11 @@ def validate_action_sequence(events: Sequence[ActionEvent]) -> None:
         raise ValueError(f"{events[0].action} cannot be the first action")
     aggressive_seen = False
     three_bet_seen = False
-    for event in events:
-        if event.action == "CALL" and not any(e.action in {"LIMP", "OPEN", "PUSH", "THREE_BET"} for e in events[:events.index(event)]):
+    for index, event in enumerate(events):
+        if event.action == "CALL" and not any(
+            previous.action in {"LIMP", "OPEN", "PUSH", "THREE_BET"}
+            for previous in events[:index]
+        ):
             raise ValueError("CALL requires a preceding action")
         if event.action == "THREE_BET":
             if not aggressive_seen or three_bet_seen:
@@ -154,11 +157,13 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     links: list[dict[str, Any]] = []
     weighted_ranges: list[Mapping[str, float]] = []
     warnings: list[str] = []
-    preceding: ActionType | None = None
-    preceding_position: str | None = None
+    # Calls do not become the action being faced by later players. Keep the
+    # latest initiating/aggressive event as the lookup anchor across callers.
+    anchor: ActionEvent | None = None
     for event in action_sequence:
-        base = resolve_link_range(db, event, stack_bb, opponent_style, preceding_action=preceding,
-                                  preceding_position=preceding_position,
+        base = resolve_link_range(db, event, stack_bb, opponent_style,
+                                  preceding_action=anchor.action if anchor else None,
+                                  preceding_position=anchor.position if anchor else None,
                                   hero_position=hero_position, table_size=table_size,
                                   icm_stage=icm_stage, has_ante=has_ante)
         if not base:
@@ -171,8 +176,10 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
             weighted_ranges.append(modified.combos)
             links.append({"position": event.position, "action": event.action,
                           "range_str": modified.range_str, "combinations": modified.combinations})
-        preceding = event.action
-        preceding_position = event.position
+        if event.action in {"OPEN", "PUSH", "THREE_BET"} or (
+            event.action == "LIMP" and anchor is None
+        ):
+            anchor = event
     pot = compute_pot_state(action_sequence, stack_bb, has_ante, table_size)
     odds = round(100 * pot.cost_to_call_bb / (pot.pot_bb + pot.cost_to_call_bb), 2)
     equity = hero_vs_field_equity(hero_combo, weighted_ranges) if hero_combo else None
