@@ -16,6 +16,7 @@ from src.db.models import (
     PostflopStrategy,
 )
 from src.engine.postflop_evaluator import evaluate_postflop
+from src.engine.multiway_resolver import ActionEvent, _nearest_by_stack, resolve_multiway_decision
 from src.engine.range_matcher import (
     get_combo_equity,
     get_range_equity,
@@ -57,6 +58,37 @@ class DecisionResult:
 
 
 class DecisionEngine:
+
+    def get_preflop_multiway_decision(
+        self, session: Session, hero_position: str, action_sequence: list[ActionEvent],
+        stack_bb: float, table_size: int, icm_stage: str, has_ante: bool,
+        opponent_style: str, hero_combo: Optional[str] = None,
+    ) -> DecisionResult:
+        details: dict[str, Any] = {
+            "hero_position": hero_position, "stack_bb": stack_bb,
+            "action_sequence": [{"position": e.position, "action": e.action} for e in action_sequence],
+        }
+        try:
+            result = resolve_multiway_decision(
+                session, hero_position, action_sequence, stack_bb, table_size,
+                icm_stage, has_ante, opponent_style, hero_combo,
+            )
+            details.update(result.details)
+            details.update({"pot_bb": result.pot_bb, "cost_to_call_bb": result.cost_to_call_bb,
+                            "pot_odds_pct": result.pot_odds_pct,
+                            "villain_link_ranges": result.villain_link_ranges})
+            if not result.villain_link_ranges:
+                return self._fallback("FOLD", details, result.equity_pct)
+            return DecisionResult(
+                action=result.action, is_in_range=result.is_in_range, range_str=result.range_str,
+                range_stats=get_range_stats(result.range_str) if result.range_str else None,
+                recommended_sizing=None, frequencies=None, equity_pct=result.equity_pct,
+                is_fallback=bool(result.details.get("warnings")), details=details,
+                action_ranges={key: {} for key in ACTION_KEYS},
+            )
+        except Exception as exc:
+            details["error"] = str(exc)
+            return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
     @staticmethod
     def _range_result(
@@ -162,13 +194,8 @@ class DecisionEngine:
         }
         try:
             if stack_bb > 15.0:
-                row = session.scalar(
-                    select(OpenRange)
-                    .where(
-                        OpenRange.position == hero_position,
-                        OpenRange.style == opponent_style,
-                    )
-                    .order_by(func.abs(OpenRange.stack_bb - stack_bb))
+                row = _nearest_by_stack(
+                    session, OpenRange, stack_bb, position=hero_position, style=opponent_style
                 )
                 if row is None:
                     return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
@@ -267,15 +294,10 @@ class DecisionEngine:
             "has_ante": has_ante,
         }
         try:
-            row = session.scalar(
-                select(FacingActionRange)
-                .where(
-                    FacingActionRange.hero_position == hero_position,
-                    FacingActionRange.villain_position == villain_position,
-                    FacingActionRange.villain_action == villain_action,
-                    FacingActionRange.opponent_style == opponent_style,
-                )
-                .order_by(func.abs(FacingActionRange.stack_bb - stack_bb))
+            row = _nearest_by_stack(
+                session, FacingActionRange, stack_bb, hero_position=hero_position,
+                villain_position=villain_position, villain_action=villain_action,
+                opponent_style=opponent_style,
             )
             if row is None:
                 return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
@@ -294,13 +316,8 @@ class DecisionEngine:
                 opponent_style=opponent_style,
             )
 
-            villain_open = session.scalar(
-                select(OpenRange)
-                .where(
-                    OpenRange.position == villain_position,
-                    OpenRange.style == opponent_style,
-                )
-                .order_by(func.abs(OpenRange.stack_bb - stack_bb))
+            villain_open = _nearest_by_stack(
+                session, OpenRange, stack_bb, position=villain_position, style=opponent_style
             )
             hero_equity = None
             if hero_combo and villain_open is not None:

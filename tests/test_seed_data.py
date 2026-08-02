@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from src.db.base import Base
-from src.db.models import FacingActionRange, IcmPushFold, NashPushFold, OpenRange, PostflopStrategy
+from src.db.models import FacingActionRange, IcmPushFold, LimpCallRange, LimpRange, NashPushFold, OpenRange, PostflopStrategy
 from src.db.seed_data import POSITIONS_BY_SIZE, generate_tournament_data, seed_tournament_data
 
 
@@ -19,6 +19,8 @@ def test_generated_data_has_complete_strategy_dimensions() -> None:
     assert len(data[IcmPushFold]) == pushfold_positions * 6 * 2 * 3
     assert len(data[NashPushFold]) == pushfold_positions * 6 * 2
     assert len(data[OpenRange]) == 189
+    assert len(data[LimpRange]) == 189
+    assert len(data[LimpCallRange]) == 210
     assert len(data[FacingActionRange]) == 1944
     assert len(data[PostflopStrategy]) == 2 * 3 * 2 * 5 * 7 * 3
     assert all(

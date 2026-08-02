@@ -3,6 +3,7 @@ import type {
   PostflopDecisionRequest,
   PreflopDecisionRequest,
   TableSession,
+  ActionEvent,
 } from '../types/poker';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -48,6 +49,8 @@ export const apiClient = {
     post<TableSession>('/session/update', payload),
   getPreflopDecision: (payload: PreflopDecisionRequest) =>
     post<DecisionResult>('/decision/preflop', payload),
+  getMultiwayDecision: (payload: { hero_combo?: string; action_sequence: ActionEvent[] }) =>
+    post<DecisionResult>('/decision/multiway', payload),
   getPostflopDecision: (payload: PostflopDecisionRequest) =>
     post<DecisionResult>('/decision/postflop', payload),
 };

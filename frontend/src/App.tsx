@@ -6,14 +6,14 @@ import { PokerTableMap } from './components/PokerTableMap';
 import { PostflopView } from './components/PostflopView';
 import { TableControls } from './components/TableControls';
 import { usePokerSession } from './hooks/usePokerSession';
-import type { DecisionResult } from './types/poker';
+import { useActionSequence } from './hooks/useActionSequence';
+import type { DecisionResult, VillainPosition } from './types/poker';
 
 type ActiveTab = 'preflop' | 'postflop';
 type PotType = 'SRP' | '3BP';
 type HeroRole = 'PFR' | 'PFC';
 type HeroPosition = 'IP' | 'OOP';
-type FacingAction = 'FIRST_IN' | 'OPEN_2.5X' | 'LIMP' | 'PUSH';
-type VillainPosition = 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
+type FacingAction = 'FIRST_IN' | 'OPEN_2.5X' | 'LIMP' | 'PUSH' | 'MULTIWAY';
 
 const POSITIONS_BY_TABLE_SIZE: Record<number, VillainPosition[]> = {
   2: ['BTN/SB', 'BB'],
@@ -84,6 +84,9 @@ export default function App() {
   const [heroPosition, setHeroPosition] = useState<HeroPosition>('IP');
   const preflopRequestId = useRef(0);
   const postflopRequestId = useRef(0);
+  const { actionSequence, cycleVillain, clear: clearActionSequence } = useActionSequence();
+  const invalidThreeBets = actionSequence.filter((event, index) => event.action === 'THREE_BET'
+    && !actionSequence.slice(0, index).some((previous) => previous.action === 'OPEN' || previous.action === 'PUSH'));
 
   useEffect(() => {
     window.Telegram?.WebApp?.ready();
@@ -104,11 +107,21 @@ export default function App() {
     setDecisionLoading(true);
     setDecisionError(undefined);
 
-    apiClient.getPreflopDecision({
-      hero_combo: selectedCombo,
-      facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
-      villain_position: facingAction === 'FIRST_IN' ? undefined : villainPosition,
-    })
+    if (facingAction === 'MULTIWAY' && (!actionSequence.length || invalidThreeBets.length)) {
+      setDecisionLoading(false);
+      setDecisionResult(null);
+      setDecisionError(invalidThreeBets.length ? 'THREE_BET requires an earlier OPEN or PUSH' : undefined);
+      return;
+    }
+
+    const request = facingAction === 'MULTIWAY'
+      ? apiClient.getMultiwayDecision({ hero_combo: selectedCombo, action_sequence: actionSequence })
+      : apiClient.getPreflopDecision({
+          hero_combo: selectedCombo,
+          facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
+          villain_position: facingAction === 'FIRST_IN' ? undefined : villainPosition,
+        });
+    request
       .then((result) => {
         if (requestId === preflopRequestId.current) setDecisionResult(result);
       })
@@ -130,6 +143,7 @@ export default function App() {
     facingAction,
     villainPosition,
     selectedCombo,
+    actionSequence,
   ]);
 
   useEffect(() => {
@@ -168,6 +182,7 @@ export default function App() {
   const handleNextHand = () => {
     setSelectedCombo(undefined);
     setFacingAction('FIRST_IN');
+    clearActionSequence();
     void triggerNextHand();
   };
 
@@ -186,6 +201,9 @@ export default function App() {
       btnPosition={session.btn_position}
       heroSeat={session.hero_seat}
       heroPositionLabel={session.hero_position_label}
+      onSeatClick={facingAction === 'MULTIWAY' ? (position) => cycleVillain(position as VillainPosition) : undefined}
+      seatActions={Object.fromEntries(actionSequence.map((event) => [event.position, event.action]))}
+      invalidPositions={invalidThreeBets.map((event) => event.position)}
     />
   );
 
@@ -249,9 +267,10 @@ export default function App() {
                 <option value="OPEN_2.5X">Против Open 2.5x</option>
                 <option value="LIMP">Против Limp</option>
                 <option value="PUSH">Против Push</option>
+                <option value="MULTIWAY">Multiway sequence</option>
               </select>
             </label>
-            {facingAction !== 'FIRST_IN' && (
+            {facingAction !== 'FIRST_IN' && facingAction !== 'MULTIWAY' && (
               <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Соперник
                 <select
@@ -264,6 +283,11 @@ export default function App() {
                   ))}
                 </select>
               </label>
+            )}
+            {facingAction === 'MULTIWAY' && (
+              <div className="mx-auto w-full max-w-[380px] rounded-lg border border-slate-700 bg-slate-900/80 p-2 text-center text-[10px] text-slate-300">
+                {actionSequence.length ? actionSequence.map((event) => `${event.position}: ${event.action}`).join(' → ') : 'Click opponent seats in action order'}
+              </div>
             )}
 
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}

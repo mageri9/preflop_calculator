@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.engine.postflop_evaluator import evaluate_postflop
 from src.engine.range_matcher import normalize_combo
+from src.engine.multiway_resolver import ActionEvent, validate_action_sequence
 from src.services.session_manager import TableSession
 
 
@@ -54,6 +55,31 @@ class PreflopDecisionRequest(BaseModel):
     def validate_facing_action(self) -> PreflopDecisionRequest:
         if self.facing_action is not None and self.villain_position is None:
             raise ValueError("villain_position is required when facing_action is set")
+        return self
+
+
+class ActionEventSchema(BaseModel):
+    position: Literal["UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB", "BTN/SB"]
+    action: Literal["LIMP", "OPEN", "CALL", "THREE_BET", "PUSH"]
+
+    @field_validator("position", "action", mode="before")
+    @classmethod
+    def normalize(cls, value: Any) -> Any:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+class MultiwayDecisionRequest(BaseModel):
+    hero_combo: Optional[str] = None
+    action_sequence: list[ActionEventSchema] = Field(min_length=1, max_length=6)
+
+    @field_validator("hero_combo")
+    @classmethod
+    def validate_combo(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_combo(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_sequence(self) -> MultiwayDecisionRequest:
+        validate_action_sequence([ActionEvent(item.position, item.action) for item in self.action_sequence])
         return self
 
 

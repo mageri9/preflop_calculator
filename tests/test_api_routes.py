@@ -69,3 +69,18 @@ def test_postflop_request_validation():
         json={"hero_cards": "AsKd", "flop_cards": "2h3c"},
     )
     assert response.status_code == 422
+
+
+def test_multiway_decision_route():
+    response = client.post("/api/decision/multiway", json={
+        "hero_combo": "AJs",
+        "action_sequence": [{"position": "UTG", "action": "OPEN"},
+                            {"position": "CO", "action": "CALL"}],
+    })
+    assert response.status_code == 200
+    assert response.json()["details"]["pot_bb"] > 0
+
+    response = client.post("/api/decision/multiway", json={
+        "action_sequence": [{"position": "CO", "action": "THREE_BET"}],
+    })
+    assert response.status_code == 422

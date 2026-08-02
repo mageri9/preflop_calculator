@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.db.seed_data import seed_tournament_data
+from src.engine.multiway_resolver import (
+    ActionEvent,
+    compute_pot_state,
+    resolve_link_range,
+    resolve_multiway_decision,
+    validate_action_sequence,
+)
+
+
+def test_sequence_validation() -> None:
+    validate_action_sequence([ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")])
+    validate_action_sequence([ActionEvent("UTG", "OPEN"), ActionEvent("CO", "THREE_BET")])
+    with pytest.raises(ValueError, match="first"):
+        validate_action_sequence([ActionEvent("UTG", "CALL")])
+    with pytest.raises(ValueError, match="order"):
+        validate_action_sequence([ActionEvent("CO", "OPEN"), ActionEvent("UTG", "CALL")])
+    with pytest.raises(ValueError, match="repeat"):
+        validate_action_sequence([ActionEvent("UTG", "LIMP"), ActionEvent("UTG", "CALL")])
+    with pytest.raises(ValueError, match="more than 6"):
+        validate_action_sequence([ActionEvent(position, "LIMP") for position in
+                                  ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN")])
+
+
+def test_pot_state_scenarios() -> None:
+    state = compute_pot_state(
+        [ActionEvent("UTG", "LIMP"), ActionEvent("MP", "LIMP"), ActionEvent("CO", "OPEN")],
+        40, False, 9,
+    )
+    assert state.pot_bb == 6.0
+    assert state.cost_to_call_bb == 2.5
+    state = compute_pot_state(
+        [ActionEvent("UTG", "OPEN"), ActionEvent("MP", "CALL"),
+         ActionEvent("HJ", "CALL"), ActionEvent("CO", "THREE_BET")], 40, False, 9,
+    )
+    assert state.pot_bb == 16.5
+    assert state.cost_to_call_bb == 7.5
+
+
+@pytest.fixture()
+def db():
+    engine = create_engine("sqlite:///:memory:")
+    factory = sessionmaker(bind=engine)
+    seed_tournament_data(factory, engine)
+    with factory() as session:
+        yield session
+
+
+def test_each_link_uses_its_reference_table(db) -> None:
+    assert resolve_link_range(db, ActionEvent("UTG", "LIMP"), 30, "REG")
+    assert resolve_link_range(db, ActionEvent("UTG", "OPEN"), 30, "REG")
+    assert resolve_link_range(db, ActionEvent("UTG", "PUSH"), 10, "REG", table_size=9)
+    assert resolve_link_range(db, ActionEvent("MP", "CALL"), 30, "REG",
+                              preceding_action="LIMP", preceding_position="UTG")
+    assert resolve_link_range(db, ActionEvent("CO", "THREE_BET"), 30, "REG",
+                              preceding_action="OPEN", preceding_position="UTG")
+
+
+def test_resolver_returns_pot_equity_and_modified_links(db) -> None:
+    result = resolve_multiway_decision(
+        db, "BB", [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")],
+        30, 9, "NORMAL", True, "REG", "AJs",
+    )
+    assert result.pot_bb > 1.5
+    assert result.cost_to_call_bb == 2.5
+    assert result.equity_pct is not None
+    assert len(result.villain_link_ranges) == 2
+
+
+def test_missing_link_is_a_warning_not_an_exception(db) -> None:
+    result = resolve_multiway_decision(
+        db, "BB", [ActionEvent("BB", "LIMP")], 30, 9, "NORMAL", False, "REG", "AA",
+    )
+    assert result.details["warnings"]

@@ -4,6 +4,7 @@ import redis.asyncio as aioredis
 from src.api.auth import get_current_user_id
 from src.api.schemas import (
     DecisionResponse,
+    MultiwayDecisionRequest,
     PostflopDecisionRequest,
     PreflopDecisionRequest,
     SessionResponse,
@@ -13,6 +14,7 @@ from src.api.schemas import (
 from src.core.config import settings
 from src.db.base import SessionLocal
 from src.engine.decision_engine import DecisionEngine
+from src.engine.multiway_resolver import ActionEvent
 from src.services.session_manager import SessionManager
 
 router = APIRouter(prefix="/api")
@@ -99,6 +101,24 @@ async def postflop(body: PostflopDecisionRequest, user_id: int = Depends(get_cur
     with SessionLocal() as db:
         result = decision_engine.get_postflop_decision(
             db, body.hero_cards, body.flop_cards, body.pot_type, body.hero_role, body.hero_position, session_manager.get_stack_bb(session, db)
+        )
+    return result
+
+
+@router.post("/decision/multiway", response_model=DecisionResponse)
+async def multiway(body: MultiwayDecisionRequest, user_id: int = Depends(get_current_user_id)):
+    table_session = await session_manager.get_or_create_session(user_id)
+    with SessionLocal() as db:
+        result = decision_engine.get_preflop_multiway_decision(
+            session=db,
+            hero_position=session_manager.get_hero_position_label(table_session, db),
+            action_sequence=[ActionEvent(event.position, event.action) for event in body.action_sequence],
+            stack_bb=session_manager.get_stack_bb(table_session, db),
+            table_size=table_session.table_size,
+            icm_stage=table_session.icm_stage,
+            has_ante=table_session.has_ante,
+            opponent_style=table_session.opponent_style,
+            hero_combo=body.hero_combo,
         )
     return result
 

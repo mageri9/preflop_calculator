@@ -3,6 +3,9 @@ export interface PokerTableMapProps {
   btnPosition: number;
   heroSeat: number;
   heroPositionLabel: string;
+  onSeatClick?: (position: string) => void;
+  seatActions?: Record<string, string>;
+  invalidPositions?: string[];
 }
 
 const POSITION_MAP: Record<number, string[]> = {
@@ -91,6 +94,9 @@ export function PokerTableMap({
   btnPosition,
   heroSeat,
   heroPositionLabel,
+  onSeatClick,
+  seatActions = {},
+  invalidPositions = [],
 }: PokerTableMapProps) {
   const layout = SEAT_LAYOUTS[tableSize] || SEAT_LAYOUTS[9];
 
@@ -133,6 +139,13 @@ export function PokerTableMap({
             const isButton = seat === btnPosition;
             const isSB = posLabel === 'SB' || posLabel === 'BTN/SB';
             const isBB = posLabel === 'BB';
+            const seatAction = seatActions[posLabel];
+            const actionClass = invalidPositions.includes(posLabel)
+              ? 'ring-2 ring-red-500 bg-red-950 text-red-200'
+              : seatAction === 'LIMP' ? 'ring-2 ring-blue-400 bg-blue-900 text-blue-100'
+              : seatAction === 'OPEN' ? 'ring-2 ring-amber-400 bg-amber-900 text-amber-100'
+              : seatAction === 'THREE_BET' ? 'ring-2 ring-red-500 bg-red-900 text-red-100'
+              : seatAction === 'PUSH' ? 'ring-2 ring-rose-700 bg-rose-950 text-rose-100' : '';
 
             return (
               <div key={seat}>
@@ -174,12 +187,16 @@ export function PokerTableMap({
                   className="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center"
                   style={{ left: `${seatLeft}%`, top: `${seatTop}%` }}
                 >
-                  <div
+                  <button
+                    type="button"
+                    disabled={isHero || !onSeatClick}
+                    onClick={() => onSeatClick?.(posLabel)}
+                    title={seatAction ?? (isHero ? 'Hero' : 'Click to set action')}
                     className={`relative flex h-8 w-8 items-center justify-center rounded-full font-mono text-[8.5px] font-black shadow-md transition-all ${
                       isHero
                         ? 'bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-950 text-white ring-2 ring-amber-300 shadow-[0_0_12px_rgba(52,211,153,0.6)] scale-110'
                         : 'border border-slate-700/80 bg-gradient-to-b from-slate-800 to-slate-950 text-amber-300/90'
-                    }`}
+                    } ${actionClass}`}
                   >
                     <span className="truncate px-0.5">{posLabel}</span>
 
@@ -189,7 +206,8 @@ export function PokerTableMap({
                         YOU
                       </span>
                     )}
-                  </div>
+                    {!isHero && seatAction && <span className="absolute -bottom-2 rounded bg-slate-950 px-1 text-[6px] text-white">{seatAction}</span>}
+                  </button>
                 </div>
               </div>
             );

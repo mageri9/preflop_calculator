@@ -11,6 +11,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 from src.utils.range_validator import validate_range_str_raise
+from src.engine.position_utils import POSITIONS_BY_SIZE, position_risk
 
 from .base import Base, SessionLocal, engine
 from .init_db import FLOP_TEXTURES, HAND_BUCKETS, POSITION_LABELS
@@ -20,6 +21,8 @@ from .models import (
     FlopTexture,
     HandBucket,
     IcmPushFold,
+    LimpCallRange,
+    LimpRange,
     NashPushFold,
     OpenRange,
     PositionLabel,
@@ -32,17 +35,6 @@ STACKS = (3, 5, 8, 10, 12, 15)
 OPEN_STACKS = (15, 20, 30, 40, 50, 80, 100)
 STYLES = ("TIGHT", "REG", "LOOSE")
 ICM_STAGES = ("BUBBLE", "FINAL_TABLE", "PAY_JUMP")
-
-POSITIONS_BY_SIZE: dict[int, tuple[str, ...]] = {
-    2: ("BTN/SB", "BB"),
-    3: ("BTN", "SB", "BB"),
-    4: ("CO", "BTN", "SB", "BB"),
-    5: ("UTG", "CO", "BTN", "SB", "BB"),
-    6: ("UTG", "HJ", "CO", "BTN", "SB", "BB"),
-    7: ("UTG", "MP", "HJ", "CO", "BTN", "SB", "BB"),
-    8: ("UTG", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"),
-    9: ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"),
-}
 
 GTO_OPEN_RANGES_BY_STACK = {
     # UTG
@@ -137,9 +129,7 @@ PUSH_RANGES = (
 
 
 def _position_pressure(table_size: int, position: str) -> int:
-    positions = POSITIONS_BY_SIZE[table_size]
-    index = positions.index(position)
-    return round(index * 4 / max(1, len(positions) - 1))
+    return round(position_risk(table_size, position) * 4)
 
 
 def _push_range(table_size: int, position: str, stack_bb: int, adjustment: int = 0) -> str:
@@ -189,6 +179,38 @@ def generate_open_ranges() -> list[dict[str, Any]]:
                     "range_str": range_str,
                 })
     return rows
+
+
+def _generate_limp_rows(*, call: bool) -> list[dict[str, Any]]:
+    positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BTN/SB")
+    if call:
+        positions = (*positions, "BB")
+    rows: list[dict[str, Any]] = []
+    for position in positions:
+        source = "SB" if position == "BB" else position
+        for stack_bb in OPEN_STACKS:
+            for style in STYLES:
+                # Limp ranges omit premium hands; limp-call adds suited and pair coverage.
+                range_str = (
+                    "99-22, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, 87s"
+                    if call else
+                    "77-22, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, 87s, 76s"
+                )
+                if style == "TIGHT":
+                    range_str = "66-22, A2s+, KTs+, QTs+, JTs, T9s, 98s"
+                elif style == "LOOSE":
+                    range_str = f"{range_str}, 65s, 54s" + (", ATo, KQo" if call else "")
+                rows.append({"position": position, "stack_bb": stack_bb, "style": style,
+                             "range_str": range_str})
+    return rows
+
+
+def generate_limp_ranges() -> list[dict[str, Any]]:
+    return _generate_limp_rows(call=False)
+
+
+def generate_limp_call_ranges() -> list[dict[str, Any]]:
+    return _generate_limp_rows(call=True)
 
 
 def generate_nash_ranges() -> list[dict[str, Any]]:
@@ -455,6 +477,8 @@ def generate_tournament_data() -> dict[type[Any], list[dict[str, Any]]]:
     data = generate_reference_rows()
     data.update({
         OpenRange: generate_open_ranges(),
+        LimpRange: generate_limp_ranges(),
+        LimpCallRange: generate_limp_call_ranges(),
         NashPushFold: generate_nash_ranges(),
         IcmPushFold: generate_icm_ranges(),
         FacingActionRange: generate_facing_action_ranges(),
@@ -495,6 +519,14 @@ def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> 
     require_exact(OpenRange, {
         (position, stack, style)
         for position in open_positions for stack in OPEN_STACKS for style in STYLES
+    })
+    require_exact(LimpRange, {
+        (position, stack, style) for position in open_positions
+        for stack in OPEN_STACKS for style in STYLES
+    })
+    require_exact(LimpCallRange, {
+        (position, stack, style) for position in (*open_positions, "BB")
+        for stack in OPEN_STACKS for style in STYLES
     })
     require_exact(NashPushFold, {
         (size, position, stack, ante, "PUSH_ONLY")

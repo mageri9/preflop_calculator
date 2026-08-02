@@ -19,6 +19,10 @@ export interface PreflopDecisionRequest {
   villain_position?: 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
 }
 
+export type VillainPosition = 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
+export type ActionType = 'LIMP' | 'OPEN' | 'CALL' | 'THREE_BET' | 'PUSH';
+export interface ActionEvent { position: VillainPosition; action: ActionType }
+
 export interface PostflopDecisionRequest {
   hero_cards: string | string[];
   flop_cards: string | string[];

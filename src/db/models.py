@@ -65,6 +65,26 @@ class OpenRange(Base):
     range_str: Mapped[str] = mapped_column(nullable=False)
 
 
+class LimpRange(Base):
+    __tablename__ = "limp_ranges"
+    __table_args__ = (Index("ix_limp_ranges_lookup", "position", "stack_bb", "style"),)
+
+    position: Mapped[str] = mapped_column(String(16), primary_key=True)
+    stack_bb: Mapped[int] = mapped_column(primary_key=True)
+    style: Mapped[str] = mapped_column(String(16), primary_key=True)
+    range_str: Mapped[str] = mapped_column(nullable=False)
+
+
+class LimpCallRange(Base):
+    __tablename__ = "limp_call_ranges"
+    __table_args__ = (Index("ix_limp_call_ranges_lookup", "position", "stack_bb", "style"),)
+
+    position: Mapped[str] = mapped_column(String(16), primary_key=True)
+    stack_bb: Mapped[int] = mapped_column(primary_key=True)
+    style: Mapped[str] = mapped_column(String(16), primary_key=True)
+    range_str: Mapped[str] = mapped_column(nullable=False)
+
+
 class BlindStructure(Base):
     __tablename__ = "blind_structures"
     __table_args__ = (Index("ix_blind_structures_structure_level", "structure_id", "level"),)
