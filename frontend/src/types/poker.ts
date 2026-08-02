@@ -34,22 +34,20 @@ export interface DecisionResult {
     | 'OPEN_RAISE'
     | '3BET_PUSH'
     | '3BET_RAISE'
+    | 'ISOLATE'
     | 'CALL'
     | 'BET'
-    | 'CHECK';
+    | 'CHECK'
+    | 'DEFEND';
   is_in_range: boolean;
   range_str?: string;
   range_stats?: {
     combos_count: number;
-    percentage: number;
     total_matrix_cells: number;
   };
+  equity_pct?: number;
   recommended_sizing?: string;
-  frequencies?: {
-    check_pct: number;
-    bet_pct: number;
-    raise_pct: number;
-  };
+  frequencies?: Record<string, number>;
   is_fallback: boolean;
   details: Record<string, any>;
 }
