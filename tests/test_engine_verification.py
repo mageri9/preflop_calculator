@@ -53,7 +53,7 @@ def test_opponent_style_changes_range_dynamically() -> None:
     assert _combination_count(tight) < _combination_count(loose)
 
 
-def test_action_ranges_are_valid_disjoint_matrix_cells() -> None:
+def test_action_ranges_are_valid_normalized_matrix_cells() -> None:
     ranges = build_action_ranges(
         {
             "push": "TT+, AKs, AKo",
@@ -65,12 +65,15 @@ def test_action_ranges_are_valid_disjoint_matrix_cells() -> None:
     )
 
     assert tuple(ranges) == ACTION_KEYS
-    claimed: set[str] = set()
     for action_range in ranges.values():
         assert set(action_range) <= set(COMBO_WEIGHTS)
         assert all(0 < frequency <= 100 for frequency in action_range.values())
-        assert claimed.isdisjoint(action_range)
-        claimed.update(action_range)
+    for combo in COMBO_WEIGHTS:
+        assert sum(action_range.get(combo, 0.0) for action_range in ranges.values()) <= 100.0
+    assert any(
+        sum(combo in action_range for action_range in ranges.values()) > 1
+        for combo in COMBO_WEIGHTS
+    )
 
 
 @pytest.fixture

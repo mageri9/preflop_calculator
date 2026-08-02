@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -161,7 +161,8 @@ class DecisionEngine:
 
     @staticmethod
     def _ranges(base_ranges: dict[str, Optional[str]], *, table_size: int, icm_stage: str,
-                has_ante: bool, opponent_style: str, position_risk: float = 0.5):
+                has_ante: bool, opponent_style: str, position_risk: float = 0.5,
+                spot_kind: Literal["shove", "wide"] = "wide"):
         return build_action_ranges(
             base_ranges,
             context=RangeContext(table_size=max(2, min(9, table_size)), icm_stage=icm_stage,
@@ -172,6 +173,7 @@ class DecisionEngine:
                 if opponent_style.strip().upper() == "TIGHT"
                 else frozenset()
             ),
+            spot_kind=spot_kind,
         )
 
     def get_preflop_first_in_decision(
@@ -206,6 +208,7 @@ class DecisionEngine:
                 action_ranges = self._ranges(
                     {"raise": row.range_str}, table_size=table_size, icm_stage=icm_stage,
                     has_ante=has_ante, opponent_style=opponent_style,
+                    spot_kind="wide",
                 )
                 return self._range_result(
                     action="OPEN_RAISE",
@@ -258,6 +261,7 @@ class DecisionEngine:
             action_ranges = self._ranges(
                 {"push": row.range_str}, table_size=table_size, icm_stage=icm_stage,
                 has_ante=has_ante, opponent_style=opponent_style,
+                spot_kind="shove",
             )
             return self._range_result(
                 action="PUSH",
@@ -316,6 +320,7 @@ class DecisionEngine:
                  "call": row.range_call},
                 table_size=table_size, icm_stage=icm_stage, has_ante=has_ante,
                 opponent_style=opponent_style,
+                spot_kind="wide" if stack_bb > 20 else "shove",
             )
 
             villain_open = _nearest_by_stack(
@@ -332,24 +337,29 @@ class DecisionEngine:
                     ("ISOLATE" if villain_action == "LIMP" else "3BET_RAISE", raise_key),
                     ("CALL", "call"),
                 )
-                for action, range_key in action_options:
-                    range_str = ", ".join(action_ranges[range_key])
-                    if range_str and is_combo_in_range(hero_combo, range_str):
-                        return self._range_result(
-                            action=action,
-                            hero_combo=hero_combo,
-                            range_str=range_str,
-                            details=details,
-                            action_ranges=action_ranges,
-                            equity_pct=hero_equity,
-                        )
+                frequencies = action_frequencies(hero_combo, action_ranges)
+                selected_action, selected_key = max(
+                    action_options,
+                    key=lambda option: frequencies[option[1]],
+                )
+                if frequencies[selected_key] >= frequencies["fold"]:
+                    range_str = ", ".join(action_ranges[selected_key])
+                    return self._range_result(
+                        action=selected_action,
+                        hero_combo=hero_combo,
+                        range_str=range_str,
+                        details=details,
+                        frequencies=frequencies,
+                        action_ranges=action_ranges,
+                        equity_pct=hero_equity,
+                    )
                 return DecisionResult(
                     action="FOLD",
                     is_in_range=False,
                     range_str=None,
                     range_stats=None,
                     recommended_sizing=None,
-                    frequencies=action_frequencies(hero_combo, action_ranges),
+                    frequencies=frequencies,
                     equity_pct=hero_equity if hero_equity is not None else get_combo_equity(hero_combo),
                     is_fallback=False,
                     details=details,

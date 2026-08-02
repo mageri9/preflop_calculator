@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.engine.range_matcher import COMBO_WEIGHTS, TOTAL_COMBINATIONS
 from src.engine.range_modifier import (
     ACTION_KEYS,
     RangeContext,
@@ -10,7 +11,10 @@ from src.engine.range_modifier import (
     build_action_ranges,
     hand_vs_range_equity,
     icm_coefficient,
+    mixed_frequencies,
     modify_range,
+    MIN_DISPLAY_FREQUENCY,
+    WIDE_TEMPERATURE,
 )
 
 
@@ -55,15 +59,75 @@ def test_loose_opponent_removes_pure_bluff_range() -> None:
     assert ranges["call"]
 
 
-def test_boundary_cell_gets_computed_mix_and_frequency_remainder() -> None:
+def test_boundary_region_has_monotonic_mixed_frequencies() -> None:
     modified = modify_range(
         "77+, ATs+", action="raise", context=RangeContext(has_ante=True)
     )
-    boundary = next(combo for combo, frequency in modified.combos.items() if frequency < 100)
-    payload = {key: {} for key in ACTION_KEYS}
-    payload["raise"] = dict(modified.combos)
+    frequencies = list(modified.combos.values())
+    assert frequencies == sorted(frequencies, reverse=True)
+    assert sum(0 < frequency < 100 for frequency in frequencies) > 1
+    assert frequencies[0] > frequencies[-1]
 
-    frequencies = action_frequencies(boundary, payload)
 
-    assert 0 < frequencies["raise"] < 100
-    assert frequencies["raise"] + frequencies["fold"] == 100
+@pytest.mark.parametrize(
+    ("score", "thresholds", "temperature"),
+    [
+        (50.0, [("call", 40.0), ("raise", 55.0), ("push", 70.0)], 4.0),
+        (12.5, [("raise", 12.5)], 9.0),
+        (90.0, [("push", 60.0)], 4.0),
+    ],
+)
+def test_mixed_frequencies_sum_to_100(score, thresholds, temperature) -> None:
+    assert sum(mixed_frequencies(score, thresholds, temperature).values()) == 100.0
+
+
+def test_mixed_frequencies_far_from_threshold_is_near_binary() -> None:
+    above = mixed_frequencies(77.0, [("push", 60.0)], 4.0)
+    below = mixed_frequencies(43.0, [("push", 60.0)], 4.0)
+
+    assert above["push"] > 98
+    assert below["fold"] > 98
+
+
+def test_mixed_frequencies_at_threshold_is_near_50_50() -> None:
+    frequencies = mixed_frequencies(60.0, [("raise", 60.0)], 4.0)
+
+    assert 45 <= frequencies["fold"] <= 55
+    assert 45 <= frequencies["raise"] <= 55
+
+
+def test_temperature_affects_mixing_width() -> None:
+    cold = mixed_frequencies(68.0, [("raise", 60.0)], 4.0)
+    warm = mixed_frequencies(68.0, [("raise", 60.0)], 9.0)
+
+    assert cold["raise"] > warm["raise"]
+
+
+def test_action_ranges_respect_min_display_frequency() -> None:
+    ranges = build_action_ranges({"raise": "JJ+"})
+
+    assert all(
+        frequency > MIN_DISPLAY_FREQUENCY
+        for action_range in ranges.values()
+        for frequency in action_range.values()
+    )
+
+
+def test_range_stats_match_actual_frequencies() -> None:
+    modified = modify_range("77+, ATs+", action="raise")
+    actual = sum(
+        COMBO_WEIGHTS[combo] * frequency / 100.0
+        for combo, frequency in modified.combos.items()
+    )
+
+    assert modified.combinations == round(actual, 2)
+    assert modified.percentage == round(actual * 100.0 / TOTAL_COMBINATIONS, 2)
+
+
+def test_action_frequencies_include_fold_remainder() -> None:
+    ranges = build_action_ranges({"raise": "77+, ATs+"})
+    combo = next(iter(ranges["raise"]))
+    frequencies = action_frequencies(combo, ranges)
+
+    assert sum(frequencies.values()) == 100.0
+    assert WIDE_TEMPERATURE > 0

@@ -333,7 +333,7 @@ export default function App() {
                     Варианты действий и частоты (%):
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(decisionResult.frequencies).map(([act, pct]) => {
+                    {Object.entries(decisionResult.frequencies).filter(([, pct]) => pct > 0).map(([act, pct]) => {
                       const colorClass = getActionColorClass(act, pct);
                       return (
                         <div

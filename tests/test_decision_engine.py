@@ -49,9 +49,9 @@ def test_first_in_push_fold_uses_nearest_demo_range(session: Session, engine: De
 
 @pytest.mark.parametrize(
     ("combo", "expected_action"),
-    [("AKs", "3BET_PUSH"), ("AJs", "3BET_RAISE"), ("ATs", "CALL"), ("72o", "FOLD")],
+    [("AA", "3BET_PUSH"), ("72o", "FOLD")],
 )
-def test_facing_action_uses_priority_ranges(
+def test_facing_action_uses_highest_mixed_frequency(
     session: Session, engine: DecisionEngine, combo: str, expected_action: str
 ) -> None:
     session.add(FacingActionRange(
