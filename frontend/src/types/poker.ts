@@ -43,6 +43,7 @@ export interface DecisionResult {
   range_str?: string;
   range_stats?: {
     combos_count: number;
+    percentage: number;
     total_matrix_cells: number;
   };
   equity_pct?: number;

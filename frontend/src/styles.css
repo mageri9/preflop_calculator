@@ -18,7 +18,12 @@
       radial-gradient(circle at 15% 15%, rgba(45, 211, 160, 0.13), transparent 32rem),
       radial-gradient(circle at 95% 85%, rgba(242, 172, 72, 0.1), transparent 28rem),
       #061914;
+    overscroll-behavior: none;
   }
+
+  html, body, #root { min-height: 100%; }
+
+  button, select, input { -webkit-tap-highlight-color: transparent; }
 }
 
 @layer utilities {
@@ -30,6 +35,22 @@
   .text-cream { color: #f5f0df; }
   .shadow-card { box-shadow: 0 30px 80px rgba(0, 0, 0, 0.38); }
   .animate-rise { animation: rise 480ms ease-out both; }
+}
+
+.matrix-cell { text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; }
+
+@supports (padding: env(safe-area-inset-top)) {
+  .telegram-shell {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
+}
+
+@media (max-width: 380px), (max-height: 720px) {
+  .matrix-grid { max-width: min(94vw, 44vh); }
+  .matrix-cell { min-height: 20px; }
 }
 
 @keyframes rise {

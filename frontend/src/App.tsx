@@ -29,22 +29,16 @@ const POSITIONS_BY_TABLE_SIZE: Record<number, VillainPosition[]> = {
 function availableVillainPositions(tableSize: number, heroPosition?: string): VillainPosition[] {
   const positions = POSITIONS_BY_TABLE_SIZE[tableSize] ?? POSITIONS_BY_TABLE_SIZE[9];
   const heroIndex = positions.indexOf(heroPosition as VillainPosition);
-  const earlierPositions = heroIndex > 0 ? positions.slice(0, heroIndex) : [];
-  return earlierPositions.length ? earlierPositions : positions.filter((position) => position !== heroPosition);
+  return heroIndex > 0 ? positions.slice(0, heroIndex) : [];
 }
 
 function defaultVillainPosition(tableSize: number, heroPosition?: string): VillainPosition {
   const positions = availableVillainPositions(tableSize, heroPosition);
-  return positions[positions.length - 1] ?? 'UTG';
-}
-
-function rangeMapToString(range?: Record<string, number>): string | undefined {
-  if (!range) return undefined;
-  const combos = Object.keys(range);
-  return combos.length ? combos.join(', ') : undefined;
+  return positions[positions.length - 1] ?? 'BTN';
 }
 
 const getActionColorClass = (act: string, pct: number) => {
+  act = act.toUpperCase();
   if (pct === 0) {
     return 'border border-slate-800/50 bg-slate-900/40 text-slate-600 opacity-40';
   }
@@ -98,7 +92,9 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
+    const positions = availableVillainPositions(session.table_size, session.hero_position_label);
     setVillainPosition(defaultVillainPosition(session.table_size, session.hero_position_label));
+    if (!positions.length) setFacingAction('FIRST_IN');
   }, [session?.hero_position_label, session?.table_size]);
 
   useEffect(() => {
@@ -175,9 +171,29 @@ export default function App() {
   };
 
   const handleFacingActionChange = (action: FacingAction) => {
-    setFacingAction(action);
+    const hasValidVillain = !session || availableVillainPositions(
+      session.table_size,
+      session.hero_position_label,
+    ).length > 0;
+    setFacingAction(action === 'FIRST_IN' || hasValidVillain ? action : 'FIRST_IN');
     setSelectedCombo(undefined);
   };
+
+  const factorBadges = session ? [
+    session.has_ante
+      ? { label: 'Ante ON', detail: '+5–10% к диапазону', className: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' }
+      : { label: 'Ante OFF', detail: 'без расширения', className: 'border-slate-700 bg-slate-800 text-slate-400' },
+    session.icm_stage === 'BUBBLE'
+      ? { label: 'ICM: Bubble', detail: '−25–30% сужение', className: 'border-fuchsia-500/50 bg-fuchsia-500/15 text-fuchsia-300' }
+      : session.icm_stage === 'FINAL_TABLE'
+        ? { label: 'ICM: Final Table', detail: '−15–20% сужение', className: 'border-amber-400/50 bg-amber-400/15 text-amber-200' }
+        : { label: 'ICM: Normal', detail: 'без давления', className: 'border-slate-700 bg-slate-800 text-slate-400' },
+    session.opponent_style === 'TIGHT'
+      ? { label: 'Против Tight', detail: '+ блеф-пуши', className: 'border-sky-500/50 bg-sky-500/15 text-sky-300' }
+      : session.opponent_style === 'LOOSE'
+        ? { label: 'Против Loose', detail: '+ велью', className: 'border-orange-500/50 bg-orange-500/15 text-orange-300' }
+        : { label: 'Против Reg', detail: 'базовая модель', className: 'border-slate-700 bg-slate-800 text-slate-400' },
+  ] : [];
 
   const table = session && (
     <PokerTableMap
@@ -189,7 +205,7 @@ export default function App() {
   );
 
   return (
-    <main className="flex h-screen max-h-screen flex-col justify-between overflow-hidden bg-slate-950 p-2 font-sans text-slate-100">
+    <main className="telegram-shell flex h-[100dvh] max-h-[100dvh] flex-col justify-between overflow-hidden bg-slate-950 p-2 font-sans text-slate-100">
       <header className="mx-auto grid w-full max-w-[360px] grid-cols-2 rounded-lg bg-slate-900 p-1">
         {([['preflop', 'ПРЕФЛОП'], ['postflop', 'ПОСТФЛОП']] as const).map(([tab, label]) => (
           <button
@@ -235,12 +251,7 @@ export default function App() {
   onSelectCombo={handleSelectCombo}
   isLoading={decisionLoading}
               action={decisionResult?.action}
-              actionRanges={{
-                push: rangeMapToString(decisionResult?.action_ranges?.push),
-                raise: facingAction === 'LIMP' ? undefined : rangeMapToString(decisionResult?.action_ranges?.raise),
-                isolate: facingAction === 'LIMP' ? rangeMapToString(decisionResult?.action_ranges?.isolate) : undefined,
-                call: rangeMapToString(decisionResult?.action_ranges?.call),
-              }}
+              actionRanges={decisionResult?.action_ranges}
             />
             <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Ситуация
@@ -272,7 +283,16 @@ export default function App() {
 
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
 
-            <div className="mx-auto flex w-full max-w-[360px] flex-col gap-2 rounded-xl border border-amber-400/30 bg-slate-900 p-3 text-xs shadow-xl">
+            <div className="mx-auto grid w-full max-w-[390px] grid-cols-3 gap-1" aria-label="Факторы диапазона">
+              {factorBadges.map((badge) => (
+                <div key={badge.label} className={`rounded-lg border px-2 py-1 text-[8px] leading-tight ${badge.className}`}>
+                  <div className="font-black">{badge.label}</div>
+                  <div className="mt-0.5 opacity-80">{badge.detail}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mx-auto flex w-full max-w-[390px] flex-col gap-2 rounded-xl border border-amber-400/30 bg-slate-900 p-3 text-xs shadow-xl">
               <div className="flex items-center justify-between font-extrabold text-amber-300">
                 <span>
                   {decisionLoading
@@ -290,6 +310,14 @@ export default function App() {
                 )}
               </div>
 
+              {!selectedCombo && decisionResult?.range_stats && (
+                <div className="flex gap-2 text-[10px] text-slate-400">
+                  <span className="rounded bg-slate-800 px-2 py-1">Матрица: <b className="text-white">{decisionResult.range_stats.percentage}%</b></span>
+                  <span className="rounded bg-slate-800 px-2 py-1">Комбинаций: <b className="text-white">{decisionResult.range_stats.combos_count}</b></span>
+                  <span className="rounded bg-slate-800 px-2 py-1">Ячеек: <b className="text-white">{decisionResult.range_stats.total_matrix_cells}</b></span>
+                </div>
+              )}
+
               {decisionResult?.frequencies && Object.keys(decisionResult.frequencies).length > 0 && (
                 <div className="space-y-1">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
@@ -303,7 +331,7 @@ export default function App() {
                           key={act}
                           className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors ${colorClass}`}
                         >
-                          <span>{act}</span>
+                          <span>{act.toUpperCase()}</span>
                           <span className="font-mono font-black">{pct}%</span>
                         </div>
                       );

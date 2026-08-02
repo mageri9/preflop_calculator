@@ -27,6 +27,7 @@ from src.engine.range_modifier import (
     RangeContext,
     action_frequencies,
     build_action_ranges,
+    hand_vs_range_equity,
 )
 
 POSTFLOP_BUCKET_EQUITY = {
@@ -66,9 +67,12 @@ class DecisionEngine:
         details: dict[str, Any],
         frequencies: Optional[dict[str, Any]] = None,
         action_ranges: Optional[dict[str, dict[str, float]]] = None,
+        equity_pct: Optional[float] = None,
     ) -> DecisionResult:
         in_range = is_combo_in_range(hero_combo, range_str) if hero_combo else False
-        equity = get_combo_equity(hero_combo) if hero_combo else get_range_equity(range_str)
+        equity = equity_pct
+        if equity is None:
+            equity = get_combo_equity(hero_combo) if hero_combo else get_range_equity(range_str)
 
         action_ranges = action_ranges or {key: {} for key in ACTION_KEYS}
         if frequencies is None and hero_combo:
@@ -115,6 +119,12 @@ class DecisionEngine:
         return position
 
     @staticmethod
+    def _facing_position(table_size: int, position: str) -> str:
+        """Map the combined heads-up button label to the defense dataset alias."""
+        normalized = (position or "").strip().upper()
+        return "BTN" if table_size == 2 and normalized == "BTN/SB" else normalized
+
+    @staticmethod
     def _ranges(base_ranges: dict[str, Optional[str]], *, table_size: int, icm_stage: str,
                 has_ante: bool, opponent_style: str, position_risk: float = 0.5):
         return build_action_ranges(
@@ -122,6 +132,11 @@ class DecisionEngine:
             context=RangeContext(table_size=max(2, min(9, table_size)), icm_stage=icm_stage,
                                  has_ante=has_ante, opponent_style=opponent_style,
                                  position_risk=position_risk),
+            bluff_actions=(
+                frozenset({"push", "raise", "isolate"})
+                if opponent_style.strip().upper() == "TIGHT"
+                else frozenset()
+            ),
         )
 
     def get_preflop_first_in_decision(
@@ -239,8 +254,8 @@ class DecisionEngine:
         has_ante: bool = True,
     ) -> DecisionResult:
         table_size = max(2, min(9, table_size))
-        hero_position = self._position(table_size, hero_position)
-        villain_position = self._position(table_size, villain_position)
+        hero_position = self._facing_position(table_size, hero_position)
+        villain_position = self._facing_position(table_size, villain_position)
         details: dict[str, Any] = {
             "hero_position": hero_position,
             "villain_position": villain_position,
@@ -279,6 +294,19 @@ class DecisionEngine:
                 opponent_style=opponent_style,
             )
 
+            villain_open = session.scalar(
+                select(OpenRange)
+                .where(
+                    OpenRange.position == villain_position,
+                    OpenRange.style == opponent_style,
+                )
+                .order_by(func.abs(OpenRange.stack_bb - stack_bb))
+            )
+            hero_equity = None
+            if hero_combo and villain_open is not None:
+                hero_equity = hand_vs_range_equity(hero_combo, villain_open.range_str)
+                details["equity_source"] = f"{villain_position} {opponent_style} range"
+
             if hero_combo:
                 action_options = (
                     ("3BET_PUSH", "push"),
@@ -294,6 +322,7 @@ class DecisionEngine:
                             range_str=range_str,
                             details=details,
                             action_ranges=action_ranges,
+                            equity_pct=hero_equity,
                         )
                 return DecisionResult(
                     action="FOLD",
@@ -302,7 +331,7 @@ class DecisionEngine:
                     range_stats=None,
                     recommended_sizing=None,
                     frequencies=action_frequencies(hero_combo, action_ranges),
-                    equity_pct=get_combo_equity(hero_combo),
+                    equity_pct=hero_equity if hero_equity is not None else get_combo_equity(hero_combo),
                     is_fallback=False,
                     details=details,
                     action_ranges=action_ranges,
