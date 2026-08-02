@@ -92,10 +92,12 @@ class DecisionEngine:
         try:
             if stack_bb > 15.0:
                 row = session.scalar(
-                    select(OpenRange).where(
+                    select(OpenRange)
+                    .where(
                         OpenRange.position == hero_position,
                         OpenRange.style == opponent_style,
                     )
+                    .order_by(func.abs(OpenRange.stack_bb - stack_bb))
                 )
                 if row is None:
                     return self._fallback("FOLD", details)

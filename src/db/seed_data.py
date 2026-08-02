@@ -29,10 +29,10 @@ from .models import (
 
 LOGGER = logging.getLogger(__name__)
 STACKS = (3, 5, 8, 10, 12, 15)
+OPEN_STACKS = (15, 20, 30, 40, 50, 80, 100)
 STYLES = ("TIGHT", "REG", "LOOSE")
 ICM_STAGES = ("BUBBLE", "FINAL_TABLE", "PAY_JUMP")
 
-# Ordered from early to late. BB is excluded because it cannot open first-in.
 POSITIONS_BY_SIZE: dict[int, tuple[str, ...]] = {
     2: ("BTN/SB", "BB"),
     6: ("UTG", "HJ", "CO", "BTN", "SB", "BB"),
@@ -40,16 +40,86 @@ POSITIONS_BY_SIZE: dict[int, tuple[str, ...]] = {
     9: ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"),
 }
 
-OPEN_RANGES = {
-    "UTG": "66+, ATs+, KQs, AQo+",
-    "UTG+1": "55+, A9s+, KJs+, QJs, AJo+, KQo",
-    "MP": "44+, A7s+, KTs+, QTs+, JTs, ATo+, KQo",
-    "MP+1": "33+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
-    "HJ": "22+, A2s+, K8s+, Q9s+, J9s+, T9s, A9o+, KTo+, QJo",
-    "CO": "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 98s, A7o+, K9o+, QTo+, JTo",
-    "BTN": "22+, A2s+, K2s+, Q5s+, J7s+, T7s+, 97s+, 87s, A2o+, K7o+, Q9o+, J9o+, T9o",
-    "SB": "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, A2o+, K7o+, Q9o+, J9o+",
-    "BTN/SB": "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 86s+, 75s+, A2o+, K2o+, Q6o+, J7o+, T8o+",
+GTO_OPEN_RANGES_BY_STACK = {
+    # UTG
+    ("UTG", 15): "88+, ATs+, KQs, AJo+, KQo",
+    ("UTG", 20): "77+, A9s+, KTs+, QTs+, AJo+, KQo",
+    ("UTG", 30): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
+    ("UTG", 40): "55+, A4s+, KTs+, QTs+, JTs, ATo+, KQo",
+    ("UTG", 50): "44+, A2s+, K9s+, QTs+, JTs, T9s, ATo+, KQo",
+    ("UTG", 80): "33+, A2s+, K9s+, Q9s+, J9s+, T9s, ATo+, KJo+",
+    ("UTG", 100): "22+, A2s+, K8s+, Q9s+, J9s+, T9s, A9o+, KJo+, QJo",
+
+    # UTG+1
+    ("UTG+1", 15): "77+, A9s+, KTs+, QTs+, AJo+, KQo",
+    ("UTG+1", 20): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
+    ("UTG+1", 30): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
+    ("UTG+1", 40): "44+, A3s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
+    ("UTG+1", 50): "33+, A2s+, K8s+, Q9s+, J9s+, T9s, A9o+, KJo+",
+    ("UTG+1", 80): "22+, A2s+, K7s+, Q9s+, J9s+, T9s, 98s, A8o+, KTo+, QJo",
+    ("UTG+1", 100): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 98s, A7o+, KTo+, QJo",
+
+    # MP
+    ("MP", 15): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
+    ("MP", 20): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
+    ("MP", 30): "44+, A3s+, K9s+, Q9s+, JTs, T9s, 98s, ATo+, KJo+",
+    ("MP", 40): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
+    ("MP", 50): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A8o+, KTo+, QJo",
+    ("MP", 80): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, A7o+, K9o+, QTo+, JTo",
+    ("MP", 100): "22+, A2s+, K4s+, Q7s+, J7s+, T7s+, 97s+, 86s+, 76s, A5o+, K9o+, QTo+, JTo",
+
+    # MP+1
+    ("MP+1", 15): "55+, A7s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
+    ("MP+1", 20): "44+, A4s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
+    ("MP+1", 30): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
+    ("MP+1", 40): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A8o+, K9o+, QJo",
+    ("MP+1", 50): "22+, A2s+, K5s+, Q8s+, J8s+, T7s+, 97s+, 86s+, 76s, A7o+, K9o+, QTo+, JTo",
+    ("MP+1", 80): "22+, A2s+, K3s+, Q7s+, J7s+, T7s+, 96s+, 86s+, 75s+, A5o+, K8o+, QTo+, JTo",
+    ("MP+1", 100): "22+, A2s+, K2s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, 65s, A3o+, K8o+, Q9o+, J9o+",
+
+    # HJ
+    ("HJ", 15): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
+    ("HJ", 20): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
+    ("HJ", 30): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A7o+, K9o+, QJo",
+    ("HJ", 40): "22+, A2s+, K4s+, Q7s+, J8s+, T7s+, 97s+, 86s+, 76s, A5o+, K9o+, QTo+, JTo",
+    ("HJ", 50): "22+, A2s+, K3s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, 65s, A4o+, K8o+, Q9o+, J9o+",
+    ("HJ", 80): "22+, A2s+, K2s+, Q5s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, A2o+, K7o+, Q9o+, J9o+, T9o",
+    ("HJ", 100): "22+, A2s+, K2s+, Q4s+, J5s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K6o+, Q8o+, J8o+, T8o",
+
+    # CO
+    ("CO", 15): "44+, A2s+, K8s+, Q9s+, J9s+, T9s, A8o+, KTo+, QJo",
+    ("CO", 20): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 98s, A5o+, K9o+, QTo+, JTo",
+    ("CO", 30): "22+, A2s+, K3s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, A3o+, K8o+, Q9o+, J9o+, T9o",
+    ("CO", 40): "22+, A2s+, K2s+, Q5s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, A2o+, K7o+, Q8o+, J8o+, T8o",
+    ("CO", 50): "22+, A2s+, K2s+, Q4s+, J5s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("CO", 80): "22+, A2s+, K2s+, Q3s+, J4s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, A2o+, K4o+, Q7o+, J7o+, T8o+, 97o+",
+    ("CO", 100): "22+, A2s+, K2s+, Q2s+, J3s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K3o+, Q6o+, J7o+, T7o+, 97o+, 87o",
+
+    # BTN
+    ("BTN", 15): "22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 98s, A2o+, K8o+, Q9o+, J9o+",
+    ("BTN", 20): "22+, A2s+, K2s+, Q5s+, J6s+, T7s+, 96s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("BTN", 30): "22+, A2s+, K2s+, Q3s+, J4s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K3o+, Q7o+, J7o+, T7o+, 97o+, 87o",
+    ("BTN", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q5o+, J6o+, T7o+, 96o+, 86o+, 76o",
+    ("BTN", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J5o+, T6o+, 96o+, 86o+, 75o+",
+    ("BTN", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J4o+, T6o+, 96o+, 85o+, 75o+",
+    ("BTN", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T5o+, 95o+, 85o+, 75o+",
+
+    # SB / BTN/SB
+    ("SB", 15): "22+, A2s+, K3s+, Q7s+, J8s+, T8s+, 98s, A2o+, K7o+, Q9o+, J9o+",
+    ("SB", 20): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("SB", 30): "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K2o+, Q6o+, J7o+, T7o+, 97o+",
+    ("SB", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J6o+, T6o+, 96o+, 86o+",
+    ("SB", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q3o+, J5o+, T6o+, 96o+, 85o+, 75o+",
+    ("SB", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J3o+, T5o+, 95o+, 85o+, 75o+",
+    ("SB", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T4o+, 94o+, 84o+, 74o+",
+
+    ("BTN/SB", 15): "22+, A2s+, K3s+, Q7s+, J8s+, T8s+, 98s, A2o+, K7o+, Q9o+, J9o+",
+    ("BTN/SB", 20): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("BTN/SB", 30): "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K2o+, Q6o+, J7o+, T7o+, 97o+",
+    ("BTN/SB", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J6o+, T6o+, 96o+, 86o+",
+    ("BTN/SB", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q3o+, J5o+, T6o+, 96o+, 85o+, 75o+",
+    ("BTN/SB", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J3o+, T5o+, 95o+, 85o+, 75o+",
+    ("BTN/SB", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T4o+, 94o+, 84o+, 74o+",
 }
 
 PUSH_RANGES = (
@@ -63,7 +133,6 @@ PUSH_RANGES = (
 
 
 def _position_pressure(table_size: int, position: str) -> int:
-    """Return a late-position bonus on a six-step range scale."""
     positions = POSITIONS_BY_SIZE[table_size]
     index = positions.index(position)
     return round(index * 4 / max(1, len(positions) - 1))
@@ -90,14 +159,31 @@ def generate_reference_rows() -> dict[type[Any], list[dict[str, Any]]]:
 
 def generate_open_ranges() -> list[dict[str, Any]]:
     rows = []
-    for position, base_range in OPEN_RANGES.items():
-        for style in STYLES:
-            range_str = base_range
-            if style == "TIGHT":
-                range_str = PUSH_RANGES[5 if position in ("UTG", "UTG+1", "MP") else 4]
-            elif style == "LOOSE" and position not in ("UTG", "UTG+1"):
-                range_str = PUSH_RANGES[2 if position in ("HJ", "CO") else 1]
-            rows.append({"position": position, "style": style, "range_str": range_str})
+    positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BTN/SB")
+    for position in positions:
+        for stack_bb in OPEN_STACKS:
+            base_range = GTO_OPEN_RANGES_BY_STACK.get(
+                (position, stack_bb),
+                GTO_OPEN_RANGES_BY_STACK.get((position, 30), "22+, A2s+, K9s+, A8o+, KTo+"),
+            )
+            for style in STYLES:
+                range_str = base_range
+                if style == "TIGHT":
+                    tight_stack = max(15, stack_bb - 10)
+                    range_str = GTO_OPEN_RANGES_BY_STACK.get(
+                        (position, tight_stack), base_range
+                    )
+                elif style == "LOOSE":
+                    loose_stack = min(100, stack_bb + 20)
+                    range_str = GTO_OPEN_RANGES_BY_STACK.get(
+                        (position, loose_stack), base_range
+                    )
+                rows.append({
+                    "position": position,
+                    "stack_bb": stack_bb,
+                    "style": style,
+                    "range_str": range_str,
+                })
     return rows
 
 
@@ -228,7 +314,6 @@ def _postflop_frequencies(
 def generate_postflop_strategies() -> list[dict[str, Any]]:
     rows = []
     for pot_type in ("SRP", "3BP"):
-        # PFC is the public API name; CALLER remains populated for old clients.
         for role in ("PFR", "PFC", "CALLER"):
             for position in ("IP", "OOP"):
                 for texture in (item["texture_id"] for item in FLOP_TEXTURES):
@@ -253,7 +338,6 @@ def generate_postflop_strategies() -> list[dict[str, Any]]:
 
 
 def generate_tournament_data() -> dict[type[Any], list[dict[str, Any]]]:
-    """Build every row without random state so repeated seeds are reproducible."""
     data = generate_reference_rows()
     data.update({
         OpenRange: generate_open_ranges(),
@@ -300,7 +384,6 @@ def seed_tournament_data(
     session_factory: scoped_session[sessionmaker[Any]] = SessionLocal,
     bind: Engine = engine,
 ) -> dict[str, int]:
-    """Create the schema and atomically UPSERT the generated data set."""
     data = generate_tournament_data()
     for rows in data.values():
         _validate_rows(rows)
@@ -315,7 +398,6 @@ def seed_tournament_data(
     return counts
 
 
-# Backward-compatible entry point used by older deployment scripts.
 seed_fixtures = seed_tournament_data
 
 

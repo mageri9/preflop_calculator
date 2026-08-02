@@ -57,8 +57,10 @@ class FacingActionRange(Base):
 
 class OpenRange(Base):
     __tablename__ = "open_ranges"
+    __table_args__ = (Index("ix_open_ranges_lookup", "position", "stack_bb", "style"),)
 
     position: Mapped[str] = mapped_column(String(16), primary_key=True)
+    stack_bb: Mapped[int] = mapped_column(primary_key=True)
     style: Mapped[str] = mapped_column(String(16), primary_key=True)
     range_str: Mapped[str] = mapped_column(nullable=False)
 

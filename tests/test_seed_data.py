@@ -27,14 +27,14 @@ def test_seed_is_idempotent_and_updates_existing_rows() -> None:
 
     first_counts = seed_tournament_data(factory, database_engine)
     with factory.begin() as session:
-        row = session.get(OpenRange, {"position": "CO", "style": "REG"})
+        row = session.get(OpenRange, {"position": "CO", "stack_bb": 30, "style": "REG"})
         assert row is not None
         row.range_str = "AA"
 
     second_counts = seed_tournament_data(factory, database_engine)
     with factory() as session:
         total = session.scalar(select(func.count()).select_from(OpenRange))
-        restored = session.get(OpenRange, {"position": "CO", "style": "REG"})
+        restored = session.get(OpenRange, {"position": "CO", "stack_bb": 30, "style": "REG"})
 
     assert first_counts == second_counts
     assert total == first_counts["open_ranges"]
