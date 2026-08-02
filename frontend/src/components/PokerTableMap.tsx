@@ -145,7 +145,8 @@ export function PokerTableMap({
               : seatAction === 'LIMP' ? 'ring-2 ring-blue-400 bg-blue-900 text-blue-100'
               : seatAction === 'OPEN' ? 'ring-2 ring-amber-400 bg-amber-900 text-amber-100'
               : seatAction === 'THREE_BET' ? 'ring-2 ring-red-500 bg-red-900 text-red-100'
-              : seatAction === 'PUSH' ? 'ring-2 ring-rose-700 bg-rose-950 text-rose-100' : '';
+              : seatAction === 'PUSH' ? 'ring-2 ring-rose-700 bg-rose-950 text-rose-100'
+              : seatAction === 'CALL' ? 'ring-2 ring-emerald-400 bg-emerald-900 text-emerald-100' : '';
 
             return (
               <div key={seat}>

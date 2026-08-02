@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.engine.postflop_evaluator import evaluate_postflop
 from src.engine.range_matcher import normalize_combo
-from src.engine.multiway_resolver import ActionEvent, validate_action_sequence
+from src.engine.multiway_resolver import (
+    ActionEvent,
+    validate_action_sequence,
+    POSITION_ORDER,
+)
 from src.services.session_manager import TableSession
 
 
@@ -79,7 +83,15 @@ class MultiwayDecisionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_sequence(self) -> MultiwayDecisionRequest:
-        validate_action_sequence([ActionEvent(item.position, item.action) for item in self.action_sequence])
+        events = [ActionEvent(item.position, item.action) for item in self.action_sequence]
+        events_sorted = sorted(
+            events,
+            key=lambda e: POSITION_ORDER.index(e.position) if e.position in POSITION_ORDER else 99
+        )
+        validate_action_sequence(events_sorted)
+        self.action_sequence = [
+            ActionEventSchema(position=e.position, action=e.action) for e in events_sorted
+        ]
         return self
 
 
