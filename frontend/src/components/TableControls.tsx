@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TableSession } from '../types/poker';
 
 export interface TableControlsProps {
@@ -20,9 +20,26 @@ export function TableControls({
   isLoading = false,
 }: TableControlsProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bbInput, setBbInput] = useState<string>(String(session.stack_bb));
+
+  // Синхронизируем инпут при изменении стека извне (например, кнопками +1/-1)
+  useEffect(() => {
+    setBbInput(String(session.stack_bb));
+  }, [session.stack_bb]);
+
   const bbInChips = session.stack_bb > 0
     ? Math.max(1, Math.round(session.stack_chips / session.stack_bb))
     : 100;
+
+  const commitBBValue = (valueStr: string) => {
+    const parsed = parseFloat(valueStr.replace(',', '.'));
+    if (!isNaN(parsed) && parsed > 0) {
+      const newChips = Math.max(1, Math.round(parsed * bbInChips));
+      onUpdateSession({ stack_chips: newChips });
+    } else {
+      setBbInput(String(session.stack_bb));
+    }
+  };
 
   const changeStackBB = (deltaBB: number) => {
     const stackBB = Math.max(1, session.stack_bb + deltaBB);
@@ -41,9 +58,26 @@ export function TableControls({
       </button>
 
       <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/70 p-1.5">
-        <strong className="mr-auto whitespace-nowrap px-1 text-lg text-emerald-400">
-          {session.stack_bb} BB
-        </strong>
+        <div className="mr-auto flex items-center gap-1">
+          <input
+  type="number"
+  step="any"
+  min="1"
+  value={bbInput}
+  disabled={isLoading}
+  onChange={(e) => setBbInput(e.target.value)}
+  onBlur={() => commitBBValue(bbInput)}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur();
+    }
+  }}
+  className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center font-mono text-base font-bold text-emerald-400 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+  aria-label="Стек в BB"
+/>
+          <span className="text-xs font-bold text-emerald-500">BB</span>
+        </div>
+
         <button type="button" disabled={isLoading || session.stack_bb <= 1} onClick={() => changeStackBB(-1)} className={buttonClass}>
           -1 BB
         </button>
@@ -56,7 +90,7 @@ export function TableControls({
           onClick={() => onUpdateSession({ blind_level: session.blind_level + 1 })}
           className={buttonClass}
         >
-          Блайнды +1
+          BLINDS UP
         </button>
       </div>
 
