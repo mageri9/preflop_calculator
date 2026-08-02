@@ -7,14 +7,17 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.base import Base
 from src.db.models import FacingActionRange, IcmPushFold, NashPushFold, OpenRange, PostflopStrategy
-from src.db.seed_data import generate_tournament_data, seed_tournament_data
+from src.db.seed_data import POSITIONS_BY_SIZE, generate_tournament_data, seed_tournament_data
 
 
 def test_generated_data_has_complete_strategy_dimensions() -> None:
     data = generate_tournament_data()
 
-    assert len(data[IcmPushFold]) == 756
-    assert len(data[NashPushFold]) == 252
+    assert set(POSITIONS_BY_SIZE) == set(range(2, 10))
+    assert all(len(positions) == size for size, positions in POSITIONS_BY_SIZE.items())
+    pushfold_positions = sum(len(positions) - 1 for positions in POSITIONS_BY_SIZE.values())
+    assert len(data[IcmPushFold]) == pushfold_positions * 6 * 2 * 3
+    assert len(data[NashPushFold]) == pushfold_positions * 6 * 2
     assert len(data[OpenRange]) == 189
     assert len(data[FacingActionRange]) == 1944
     assert len(data[PostflopStrategy]) == 2 * 3 * 2 * 5 * 7 * 3

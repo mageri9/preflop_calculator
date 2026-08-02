@@ -161,5 +161,6 @@ def get_range_stats(range_str: str) -> dict[str, Any]:
     combos_count = sum(COMBO_WEIGHTS.get(combo, 1) for combo in expanded)
     return {
         "combos_count": combos_count,
+        "percentage": round(combos_count * 100 / TOTAL_COMBINATIONS, 2),
         "total_matrix_cells": len(expanded),
     }

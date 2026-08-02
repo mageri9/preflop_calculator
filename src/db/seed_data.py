@@ -35,7 +35,11 @@ ICM_STAGES = ("BUBBLE", "FINAL_TABLE", "PAY_JUMP")
 
 POSITIONS_BY_SIZE: dict[int, tuple[str, ...]] = {
     2: ("BTN/SB", "BB"),
+    3: ("BTN", "SB", "BB"),
+    4: ("CO", "BTN", "SB", "BB"),
+    5: ("UTG", "CO", "BTN", "SB", "BB"),
     6: ("UTG", "HJ", "CO", "BTN", "SB", "BB"),
+    7: ("UTG", "MP", "HJ", "CO", "BTN", "SB", "BB"),
     8: ("UTG", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"),
     9: ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"),
 }

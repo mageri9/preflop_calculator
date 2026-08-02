@@ -16,7 +16,7 @@ export interface TableSession {
 export interface PreflopDecisionRequest {
   hero_combo?: string;
   facing_action?: 'OPEN_2.5X' | 'LIMP' | 'PUSH';
-  villain_position?: 'UTG' | 'MP' | 'CO' | 'BTN';
+  villain_position?: 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
 }
 
 export interface PostflopDecisionRequest {
@@ -50,4 +50,10 @@ export interface DecisionResult {
   frequencies?: Record<string, number>;
   is_fallback: boolean;
   details: Record<string, any>;
+  action_ranges?: {
+    push?: Record<string, number>;
+    raise?: Record<string, number>;
+    isolate?: Record<string, number>;
+    call?: Record<string, number>;
+  };
 }

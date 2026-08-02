@@ -41,6 +41,20 @@ def test_preflop_decision():
     assert tuple(response.json()["action_ranges"]) == ("push", "raise", "isolate", "call")
 
 
+def test_facing_action_decision_accepts_villain_position():
+    response = client.post(
+        "/api/decision/preflop",
+        json={
+            "hero_combo": "AJs",
+            "facing_action": "OPEN_2.5X",
+            "villain_position": "CO",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["details"]["villain_position"] == "CO"
+
+
 def test_preflop_request_validation():
     response = client.post("/api/decision/preflop", json={"hero_combo": "not-a-hand"})
     assert response.status_code == 422

@@ -13,6 +13,36 @@ type PotType = 'SRP' | '3BP';
 type HeroRole = 'PFR' | 'PFC';
 type HeroPosition = 'IP' | 'OOP';
 type FacingAction = 'FIRST_IN' | 'OPEN_2.5X' | 'LIMP' | 'PUSH';
+type VillainPosition = 'UTG' | 'UTG+1' | 'MP' | 'MP+1' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB' | 'BTN/SB';
+
+const POSITIONS_BY_TABLE_SIZE: Record<number, VillainPosition[]> = {
+  2: ['BTN/SB', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['CO', 'BTN', 'SB', 'BB'],
+  5: ['UTG', 'CO', 'BTN', 'SB', 'BB'],
+  6: ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
+  7: ['UTG', 'MP', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
+  8: ['UTG', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
+  9: ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
+};
+
+function availableVillainPositions(tableSize: number, heroPosition?: string): VillainPosition[] {
+  const positions = POSITIONS_BY_TABLE_SIZE[tableSize] ?? POSITIONS_BY_TABLE_SIZE[9];
+  const heroIndex = positions.indexOf(heroPosition as VillainPosition);
+  const earlierPositions = heroIndex > 0 ? positions.slice(0, heroIndex) : [];
+  return earlierPositions.length ? earlierPositions : positions.filter((position) => position !== heroPosition);
+}
+
+function defaultVillainPosition(tableSize: number, heroPosition?: string): VillainPosition {
+  const positions = availableVillainPositions(tableSize, heroPosition);
+  return positions[positions.length - 1] ?? 'UTG';
+}
+
+function rangeMapToString(range?: Record<string, number>): string | undefined {
+  if (!range) return undefined;
+  const combos = Object.keys(range);
+  return combos.length ? combos.join(', ') : undefined;
+}
 
 const getActionColorClass = (act: string, pct: number) => {
   if (pct === 0) {
@@ -50,6 +80,7 @@ export default function App() {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string>();
   const [facingAction, setFacingAction] = useState<FacingAction>('FIRST_IN');
+  const [villainPosition, setVillainPosition] = useState<VillainPosition>('UTG');
   const [flopCards, setFlopCards] = useState<string[]>([]);
   const [postflopResult, setPostflopResult] = useState<DecisionResult | null>(null);
   const [postflopLoading, setPostflopLoading] = useState(false);
@@ -67,6 +98,11 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
+    setVillainPosition(defaultVillainPosition(session.table_size, session.hero_position_label));
+  }, [session?.hero_position_label, session?.table_size]);
+
+  useEffect(() => {
+    if (!session) return;
 
     const requestId = ++preflopRequestId.current;
     setDecisionLoading(true);
@@ -75,6 +111,7 @@ export default function App() {
     apiClient.getPreflopDecision({
       hero_combo: selectedCombo,
       facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
+      villain_position: facingAction === 'FIRST_IN' ? undefined : villainPosition,
     })
       .then((result) => {
         if (requestId === preflopRequestId.current) setDecisionResult(result);
@@ -95,6 +132,7 @@ export default function App() {
     session?.has_ante,
     session?.opponent_style,
     facingAction,
+    villainPosition,
     selectedCombo,
   ]);
 
@@ -192,18 +230,18 @@ export default function App() {
   />
 )}
             <Matrix13x13
-  activeRangeStr={decisionResult?.range_str}
+              activeRangeStr={decisionResult?.range_str}
   selectedCombo={selectedCombo}
   onSelectCombo={handleSelectCombo}
   isLoading={decisionLoading}
-  action={decisionResult?.action}
-  actionRanges={{
-    push: decisionResult?.details?.range_3bet_push,
-    raise: facingAction === 'LIMP' ? undefined : decisionResult?.details?.range_3bet_raise,
-    isolate: facingAction === 'LIMP' ? decisionResult?.details?.range_3bet_raise : undefined,
-    call: decisionResult?.details?.range_call,
-  }}
-/>
+              action={decisionResult?.action}
+              actionRanges={{
+                push: rangeMapToString(decisionResult?.action_ranges?.push),
+                raise: facingAction === 'LIMP' ? undefined : rangeMapToString(decisionResult?.action_ranges?.raise),
+                isolate: facingAction === 'LIMP' ? rangeMapToString(decisionResult?.action_ranges?.isolate) : undefined,
+                call: rangeMapToString(decisionResult?.action_ranges?.call),
+              }}
+            />
             <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Ситуация
               <select
@@ -217,6 +255,20 @@ export default function App() {
                 <option value="PUSH">Против Push</option>
               </select>
             </label>
+            {facingAction !== 'FIRST_IN' && (
+              <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Соперник
+                <select
+                  value={villainPosition}
+                  onChange={(event) => setVillainPosition(event.target.value as VillainPosition)}
+                  className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
+                >
+                  {availableVillainPositions(session?.table_size ?? 9, session?.hero_position_label).map((position) => (
+                    <option key={position} value={position}>{position}</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
 
