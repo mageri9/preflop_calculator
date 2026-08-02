@@ -43,7 +43,7 @@ const getActionColorClass = (act: string, pct: number) => {
 };
 
 export default function App() {
-  const { session, loading, error, triggerNextHand, updateTableSize, updateSession } = usePokerSession();
+  const { session, loading, error, triggerNextHand, resetSession, updateTableSize, updateSession } = usePokerSession();
   const [activeTab, setActiveTab] = useState<ActiveTab>('preflop');
   const [selectedCombo, setSelectedCombo] = useState<string>();
   const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
@@ -173,20 +173,24 @@ export default function App() {
           <div className="flex min-h-0 flex-col gap-1">
             {table}
             {session && (
-              <TableControls
-                session={session}
-                onNextHand={handleNextHand}
-                onChangeTableSize={(size) => {
-                  setSelectedCombo(undefined);
-                  void updateTableSize(size);
-                }}
-                onUpdateSession={(payload) => {
-                  setSelectedCombo(undefined);
-                  void updateSession(payload);
-                }}
-                isLoading={loading}
-              />
-            )}
+  <TableControls
+    session={session}
+    onNextHand={handleNextHand}
+    onResetSession={() => {
+      setSelectedCombo(undefined);
+      void resetSession();
+    }}
+    onChangeTableSize={(size) => {
+      setSelectedCombo(undefined);
+      void updateTableSize(size);
+    }}
+    onUpdateSession={(payload) => {
+      setSelectedCombo(undefined);
+      void updateSession(payload);
+    }}
+    isLoading={loading}
+  />
+)}
             <Matrix13x13
   activeRangeStr={decisionResult?.range_str}
   selectedCombo={selectedCombo}

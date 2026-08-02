@@ -27,7 +27,7 @@ class TableSession(BaseModel):
     structure_id: str = "TURBO"
 
     @model_validator(mode="after")
-    def validate_seats(self) -> "TableSession":
+    def validate_seats(self) -> TableSession:
         if self.btn_position > self.table_size:
             raise ValueError("btn_position must not exceed table_size")
         if self.hero_seat > self.table_size:
@@ -48,6 +48,25 @@ class SessionManager:
     def _make_key(user_id: int) -> str:
         return f"poker_session:{user_id}"
 
+    def _get_blind_structure_row(
+        self, session: TableSession, db_session: Session
+    ) -> BlindStructure | None:
+        """Получить точную структуру блайндов или максимальный доступный уровень."""
+        statement = select(BlindStructure).where(
+            BlindStructure.structure_id == session.structure_id,
+            BlindStructure.level == session.blind_level,
+        )
+        row = db_session.scalar(statement)
+        if row is None:
+            # Если уровень превысил БД, берем последний существующий уровень
+            fallback_stmt = (
+                select(BlindStructure)
+                .where(BlindStructure.structure_id == session.structure_id)
+                .order_by(BlindStructure.level.desc())
+            )
+            row = db_session.scalar(fallback_stmt)
+        return row
+
     async def get_or_create_session(self, user_id: int) -> TableSession:
         data = await self._redis.get(self._make_key(user_id))
         if data is not None:
@@ -64,20 +83,30 @@ class SessionManager:
             ex=self._ttl,
         )
 
-    async def next_hand(self, user_id: int, db_session: Session | None = None) -> TableSession:
+    async def reset_session(self, user_id: int) -> TableSession:
+        """Сброс параметров турнира к начальным значениям."""
+        session = await self.get_or_create_session(user_id)
+        session.stack_chips = 25_000
+        session.blind_level = 1
+        session.btn_position = 1
+        await self.save_session(session)
+        return session
+
+    async def next_hand(
+        self, user_id: int, db_session: Session | None = None
+    ) -> TableSession:
         session = await self.get_or_create_session(user_id)
         session.btn_position = (session.btn_position % session.table_size) + 1
 
         if db_session is not None:
             label = self.get_hero_position_label(session, db_session)
-            statement = select(BlindStructure).where(
-                BlindStructure.structure_id == session.structure_id,
-                BlindStructure.level == session.blind_level,
-            )
-            structure = db_session.scalar(statement)
+            structure = self._get_blind_structure_row(session, db_session)
+
             sb_chips = structure.sb_chips if structure is not None else 50
             bb_chips = structure.bb_chips if structure is not None else 100
-            ante_chips = structure.ante_chips if structure is not None else (bb_chips // 8)
+            ante_chips = (
+                structure.ante_chips if structure is not None else (bb_chips // 8)
+            )
             if session.has_ante and ante_chips == 0:
                 ante_chips = max(1, bb_chips // 8)
 
@@ -111,7 +140,9 @@ class SessionManager:
         await self.save_session(session)
         return session
 
-    def get_hero_position_label(self, session: TableSession, db_session: Session) -> str:
+    def get_hero_position_label(
+        self, session: TableSession, db_session: Session
+    ) -> str:
         seat_index = (session.hero_seat - session.btn_position) % session.table_size
         statement = select(PositionLabel).where(
             PositionLabel.table_size == session.table_size,
@@ -121,10 +152,6 @@ class SessionManager:
         return row.label if row is not None else "UNKNOWN"
 
     def get_stack_bb(self, session: TableSession, db_session: Session) -> float:
-        statement = select(BlindStructure).where(
-            BlindStructure.structure_id == session.structure_id,
-            BlindStructure.level == session.blind_level,
-        )
-        row = db_session.scalar(statement)
-        bb_chips = row.bb_chips if row is not None else 100
+        structure = self._get_blind_structure_row(session, db_session)
+        bb_chips = structure.bb_chips if structure is not None else 100
         return round(session.stack_chips / bb_chips, 1)

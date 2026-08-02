@@ -41,6 +41,7 @@ const post = <T>(path: string, payload?: unknown) =>
 export const apiClient = {
   getSession: () => request<TableSession>('/session'),
   nextHand: () => post<TableSession>('/session/next-hand'),
+  resetSession: () => post<TableSession>('/session/reset'), // <--- ДОБАВЛЕНО
   setTableSize: (size: number) =>
     post<TableSession>('/session/table-size', { table_size: size }),
   updateSession: (payload: Partial<TableSession>) =>

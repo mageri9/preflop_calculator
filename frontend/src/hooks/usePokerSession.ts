@@ -50,11 +50,17 @@ export function usePokerSession() {
     [runSessionAction],
   );
 
+  const resetSession = useCallback(
+    () => runSessionAction(apiClient.resetSession),
+    [runSessionAction],
+  );
+
   return {
     session,
     loading,
     error,
     triggerNextHand,
+    resetSession,
     updateTableSize,
     updateSession,
   };

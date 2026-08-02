@@ -44,8 +44,19 @@ async def table_size(body: TableSizeRequest, user_id: int = Depends(get_current_
 @router.post("/session/update", response_model=SessionResponse)
 async def update_session(body: UpdateSessionRequest, user_id: int = Depends(get_current_user_id)):
     session = await session_manager.get_or_create_session(user_id)
-    for key, value in body.model_dump(exclude_none=True).items():
+    payload = body.model_dump(exclude_none=True)
+
+    # Если с фронтенда пришел stack_bb, пересчитываем stack_chips для текущего уровня блайндов
+    if "stack_bb" in payload:
+        target_bb = payload.pop("stack_bb")
+        with SessionLocal() as db:
+            structure = session_manager._get_blind_structure_row(session, db)
+            bb_chips = structure.bb_chips if structure is not None else 100
+            session.stack_chips = max(1, round(target_bb * bb_chips))
+
+    for key, value in payload.items():
         setattr(session, key, value)
+
     await session_manager.save_session(session)
     return _response(session)
 
@@ -73,3 +84,7 @@ async def postflop(body: PostflopDecisionRequest, user_id: int = Depends(get_cur
             db, body.hero_cards, body.flop_cards, body.pot_type, body.hero_role, body.hero_position, session_manager.get_stack_bb(session, db)
         )
     return result
+
+@router.post("/session/reset", response_model=SessionResponse)
+async def reset_session(user_id: int = Depends(get_current_user_id)):
+    return _response(await session_manager.reset_session(user_id))
