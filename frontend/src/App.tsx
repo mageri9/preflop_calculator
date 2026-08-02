@@ -179,22 +179,6 @@ export default function App() {
     setSelectedCombo(undefined);
   };
 
-  const factorBadges = session ? [
-    session.has_ante
-      ? { label: 'Ante ON', detail: '+5–10% к диапазону', className: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' }
-      : { label: 'Ante OFF', detail: 'без расширения', className: 'border-slate-700 bg-slate-800 text-slate-400' },
-    session.icm_stage === 'BUBBLE'
-      ? { label: 'ICM: Bubble', detail: '−25–30% сужение', className: 'border-fuchsia-500/50 bg-fuchsia-500/15 text-fuchsia-300' }
-      : session.icm_stage === 'FINAL_TABLE'
-        ? { label: 'ICM: Final Table', detail: '−15–20% сужение', className: 'border-amber-400/50 bg-amber-400/15 text-amber-200' }
-        : { label: 'ICM: Normal', detail: 'без давления', className: 'border-slate-700 bg-slate-800 text-slate-400' },
-    session.opponent_style === 'TIGHT'
-      ? { label: 'Против Tight', detail: '+ блеф-пуши', className: 'border-sky-500/50 bg-sky-500/15 text-sky-300' }
-      : session.opponent_style === 'LOOSE'
-        ? { label: 'Против Loose', detail: '+ велью', className: 'border-orange-500/50 bg-orange-500/15 text-orange-300' }
-        : { label: 'Против Reg', detail: 'базовая модель', className: 'border-slate-700 bg-slate-800 text-slate-400' },
-  ] : [];
-
   const table = session && (
     <PokerTableMap
       tableSize={session.table_size}
@@ -205,7 +189,7 @@ export default function App() {
   );
 
   return (
-    <main className="telegram-shell flex h-[100dvh] max-h-[100dvh] flex-col justify-between overflow-hidden bg-slate-950 p-2 font-sans text-slate-100">
+    <main className="telegram-shell flex h-[100dvh] max-h-[100dvh] min-w-0 flex-col justify-between overflow-hidden bg-slate-950 p-2 font-sans text-slate-100">
       <header className="mx-auto grid w-full max-w-[360px] grid-cols-2 rounded-lg bg-slate-900 p-1">
         {([['preflop', 'ПРЕФЛОП'], ['postflop', 'ПОСТФЛОП']] as const).map(([tab, label]) => (
           <button
@@ -220,11 +204,11 @@ export default function App() {
         ))}
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-1 overflow-hidden py-1">
+      <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-start gap-1 overflow-x-hidden overflow-y-auto py-1">
         {error && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{error}</div>}
 
         {activeTab === 'preflop' ? (
-          <div className="flex min-h-0 flex-col gap-1">
+          <div className="flex w-full min-w-0 shrink-0 flex-col gap-1">
             {table}
             {session && (
   <TableControls
@@ -258,7 +242,7 @@ export default function App() {
               <select
                 value={facingAction}
                 onChange={(event) => handleFacingActionChange(event.target.value as FacingAction)}
-                className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
+                className="ml-auto min-w-0 max-w-full rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
               >
                 <option value="FIRST_IN">Первое слово / Open</option>
                 <option value="OPEN_2.5X">Против Open 2.5x</option>
@@ -272,7 +256,7 @@ export default function App() {
                 <select
                   value={villainPosition}
                   onChange={(event) => setVillainPosition(event.target.value as VillainPosition)}
-                  className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
+                  className="ml-auto min-w-0 max-w-full rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
                 >
                   {availableVillainPositions(session?.table_size ?? 9, session?.hero_position_label).map((position) => (
                     <option key={position} value={position}>{position}</option>
@@ -282,15 +266,6 @@ export default function App() {
             )}
 
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
-
-            <div className="mx-auto grid w-full max-w-[390px] grid-cols-3 gap-1" aria-label="Факторы диапазона">
-              {factorBadges.map((badge) => (
-                <div key={badge.label} className={`rounded-lg border px-2 py-1 text-[8px] leading-tight ${badge.className}`}>
-                  <div className="font-black">{badge.label}</div>
-                  <div className="mt-0.5 opacity-80">{badge.detail}</div>
-                </div>
-              ))}
-            </div>
 
             <div className="mx-auto flex w-full max-w-[390px] flex-col gap-2 rounded-xl border border-amber-400/30 bg-slate-900 p-3 text-xs shadow-xl">
               <div className="flex items-center justify-between font-extrabold text-amber-300">

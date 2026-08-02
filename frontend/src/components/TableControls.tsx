@@ -60,8 +60,8 @@ export function TableControls({
       </button>
 
       {/* Инпут стека в BB и кнопки управления */}
-      <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/70 p-1.5">
-        <div className="mr-auto flex items-center gap-1">
+      <div className="grid min-w-0 grid-cols-3 gap-1.5 rounded-lg border border-slate-800 bg-slate-900/70 p-1.5 sm:flex sm:items-center">
+        <div className="col-span-3 flex min-w-0 items-center gap-1 sm:mr-auto">
           <input
             type="number"
             step="any"
@@ -75,7 +75,7 @@ export function TableControls({
                 (e.target as HTMLInputElement).blur();
               }
             }}
-            className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center font-mono text-base font-bold text-emerald-400 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="min-w-0 w-16 max-w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center font-mono text-base font-bold text-emerald-400 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             aria-label="Стек в BB"
           />
           <span className="text-xs font-bold text-emerald-500">BB</span>
@@ -85,7 +85,7 @@ export function TableControls({
           type="button"
           disabled={isLoading || session.stack_bb <= 1}
           onClick={() => changeStackBB(-1)}
-          className={buttonClass}
+          className={`${buttonClass} min-w-0 px-1 sm:px-2`}
         >
           -1 BB
         </button>
@@ -93,7 +93,7 @@ export function TableControls({
           type="button"
           disabled={isLoading}
           onClick={() => changeStackBB(1)}
-          className={buttonClass}
+          className={`${buttonClass} min-w-0 px-1 sm:px-2`}
         >
           +1 BB
         </button>
@@ -101,18 +101,18 @@ export function TableControls({
           type="button"
           disabled={isLoading || isMaxLevel}
           onClick={() => onUpdateSession({ blind_level: session.blind_level + 1 })}
-          className={`${buttonClass} ${isMaxLevel ? 'opacity-30' : ''}`}
+          className={`${buttonClass} min-w-0 px-1 sm:px-2 ${isMaxLevel ? 'opacity-30' : ''}`}
         >
           {isMaxLevel ? 'MAX LEVEL' : `BLINDS UP (Lvl ${session.blind_level})`}
         </button>
       </div>
 
       {/* Настройки + отдельная кнопка Сброс */}
-      <div className="flex gap-1.5">
+      <div className="flex min-w-0 gap-1.5">
         <button
           type="button"
           onClick={() => setSettingsOpen((open) => !open)}
-          className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-left text-[10px] font-medium text-slate-400"
+          className="min-w-0 flex-1 truncate rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-left text-[10px] font-medium text-slate-400"
           aria-expanded={settingsOpen}
         >
           Настройки: {session.table_size}-max | Level {session.blind_level} | Ante: {session.has_ante ? 'ON' : 'OFF'}
