@@ -87,6 +87,10 @@ export default function App() {
   const { actionSequence, cycleVillain, clear: clearActionSequence } = useActionSequence();
   const invalidThreeBets = actionSequence.filter((event, index) => event.action === 'THREE_BET'
     && !actionSequence.slice(0, index).some((previous) => previous.action === 'OPEN' || previous.action === 'PUSH'));
+  const hasValidVillain = !session || availableVillainPositions(
+    session.table_size,
+    session.hero_position_label,
+  ).length > 0;
 
   useEffect(() => {
     window.Telegram?.WebApp?.ready();
@@ -187,12 +191,17 @@ export default function App() {
   };
 
   const handleFacingActionChange = (action: FacingAction) => {
-    const hasValidVillain = !session || availableVillainPositions(
-      session.table_size,
-      session.hero_position_label,
-    ).length > 0;
-    setFacingAction(action === 'FIRST_IN' || hasValidVillain ? action : 'FIRST_IN');
+    if (facingAction === 'MULTIWAY' && action !== 'MULTIWAY') clearActionSequence();
+    setFacingAction(action);
     setSelectedCombo(undefined);
+  };
+
+  const handleVillainSeatClick = (position: string) => {
+    if (facingAction !== 'MULTIWAY') {
+      setFacingAction('MULTIWAY');
+      setSelectedCombo(undefined);
+    }
+    cycleVillain(position as VillainPosition);
   };
 
   const table = session && (
@@ -201,7 +210,7 @@ export default function App() {
       btnPosition={session.btn_position}
       heroSeat={session.hero_seat}
       heroPositionLabel={session.hero_position_label}
-      onSeatClick={facingAction === 'MULTIWAY' ? (position) => cycleVillain(position as VillainPosition) : undefined}
+      onSeatClick={activeTab === 'preflop' ? handleVillainSeatClick : undefined}
       seatActions={Object.fromEntries(actionSequence.map((event) => [event.position, event.action]))}
       invalidPositions={invalidThreeBets.map((event) => event.position)}
     />
@@ -267,7 +276,7 @@ export default function App() {
                 <option value="OPEN_2.5X">Против Open 2.5x</option>
                 <option value="LIMP">Против Limp</option>
                 <option value="PUSH">Против Push</option>
-                <option value="MULTIWAY">Multiway sequence</option>
+                <option value="MULTIWAY" disabled={!hasValidVillain}>Multiway sequence</option>
               </select>
             </label>
             {facingAction !== 'FIRST_IN' && facingAction !== 'MULTIWAY' && (
