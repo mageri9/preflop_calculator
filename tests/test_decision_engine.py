@@ -7,7 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.base import Base
-from src.db.models import FacingActionRange, NashPushFold, PostflopStrategy
+from src.db.models import FacingActionRange, NashPushFold, OpenRange, PostflopStrategy
+from src.engine.range_modifier import ACTION_KEYS
 from src.engine.decision_engine import DecisionEngine
 
 
@@ -41,6 +42,9 @@ def test_first_in_push_fold_uses_nearest_demo_range(session: Session, engine: De
     assert pushed.details["strategy_stack_bb"] == 10
     assert folded.action == "FOLD"
     assert folded.is_fallback is False
+    assert tuple(pushed.action_ranges) == ACTION_KEYS
+    assert pushed.action_ranges["push"]
+    assert all(not pushed.action_ranges[key] for key in ("raise", "isolate", "call"))
 
 
 @pytest.mark.parametrize(
@@ -63,6 +67,21 @@ def test_facing_action_uses_priority_ranges(
 
     assert result.action == expected_action
     assert result.is_fallback is False
+    assert tuple(result.action_ranges) == ACTION_KEYS
+
+
+def test_heads_up_button_alias_maps_to_btn_sb(session: Session, engine: DecisionEngine) -> None:
+    session.add(OpenRange(
+        position="BTN/SB", stack_bb=30, style="REG", range_str="22+, A2s+, ATo+",
+    ))
+    session.commit()
+
+    result = engine.get_preflop_first_in_decision(
+        session, 2, "BTN", 30, "AJs", "NORMAL", False, "REG"
+    )
+
+    assert result.action == "OPEN_RAISE"
+    assert result.details["hero_position"] == "BTN/SB"
 
 
 def test_postflop_returns_strategy_frequencies_and_sizing(session: Session, engine: DecisionEngine) -> None:
@@ -93,3 +112,5 @@ def test_empty_database_returns_safe_fallbacks(session: Session, engine: Decisio
     assert (facing.action, facing.is_fallback) == ("FOLD", True)
     assert (postflop.action, postflop.is_fallback) == ("CHECK", True)
     assert postflop.recommended_sizing == "CHECK"
+    assert tuple(preflop.action_ranges) == ACTION_KEYS
+    assert all(not value for value in preflop.action_ranges.values())

@@ -68,7 +68,9 @@ async def preflop(body: PreflopDecisionRequest, user_id: int = Depends(get_curre
         stack = session_manager.get_stack_bb(session, db)
         if body.facing_action:
             result = decision_engine.get_preflop_facing_action_decision(
-                db, label, body.villain_position or "UTG", body.facing_action, stack, session.opponent_style, body.hero_combo
+                db, label, body.villain_position or "UTG", body.facing_action, stack,
+                session.opponent_style, body.hero_combo, session.table_size,
+                session.icm_stage, session.has_ante,
             )
         else:
             result = decision_engine.get_preflop_first_in_decision(

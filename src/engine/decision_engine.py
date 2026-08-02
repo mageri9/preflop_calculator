@@ -22,6 +22,12 @@ from src.engine.range_matcher import (
     get_range_stats,
     is_combo_in_range,
 )
+from src.engine.range_modifier import (
+    ACTION_KEYS,
+    RangeContext,
+    action_frequencies,
+    build_action_ranges,
+)
 
 POSTFLOP_BUCKET_EQUITY = {
     "MONSTER": 88.5,
@@ -44,6 +50,9 @@ class DecisionResult:
     equity_pct: Optional[float] = None
     is_fallback: bool = False
     details: dict[str, Any] = field(default_factory=dict)
+    action_ranges: dict[str, dict[str, float]] = field(
+        default_factory=lambda: {key: {} for key in ACTION_KEYS}
+    )
 
 
 class DecisionEngine:
@@ -56,23 +65,16 @@ class DecisionEngine:
         range_str: str,
         details: dict[str, Any],
         frequencies: Optional[dict[str, Any]] = None,
+        action_ranges: Optional[dict[str, dict[str, float]]] = None,
     ) -> DecisionResult:
         in_range = is_combo_in_range(hero_combo, range_str) if hero_combo else False
         equity = get_combo_equity(hero_combo) if hero_combo else get_range_equity(range_str)
 
-        if frequencies is None:
-            if action in ("PUSH", "3BET_PUSH"):
-                frequencies = {"PUSH": 100 if (in_range or not hero_combo) else 0, "FOLD": 0 if (in_range or not hero_combo) else 100}
-            elif action == "OPEN_RAISE":
-                frequencies = {"RAISE": 80 if (in_range or not hero_combo) else 0, "PUSH": 20 if (in_range or not hero_combo) else 0, "FOLD": 0 if (in_range or not hero_combo) else 100}
-            elif action == "ISOLATE":
-                frequencies = {"ISOLATE": 80 if (in_range or not hero_combo) else 0, "CALL": 20 if (in_range or not hero_combo) else 0, "FOLD": 0 if (in_range or not hero_combo) else 100}
-            elif action in ("3BET_RAISE", "RAISE"):
-                frequencies = {"RAISE": 70 if (in_range or not hero_combo) else 0, "CALL": 30 if (in_range or not hero_combo) else 0, "FOLD": 0 if (in_range or not hero_combo) else 100}
-            elif action == "CALL":
-                frequencies = {"CALL": 100 if (in_range or not hero_combo) else 0, "FOLD": 0 if (in_range or not hero_combo) else 100}
-            else:
-                frequencies = {"FOLD": 100}
+        action_ranges = action_ranges or {key: {} for key in ACTION_KEYS}
+        if frequencies is None and hero_combo:
+            frequencies = action_frequencies(hero_combo, action_ranges)
+        elif frequencies is None:
+            frequencies = None
 
         return DecisionResult(
             action=action if (in_range or hero_combo is None) else "FOLD",
@@ -84,10 +86,13 @@ class DecisionEngine:
             equity_pct=equity,
             is_fallback=False,
             details=details,
+            action_ranges=action_ranges,
         )
 
     @staticmethod
-    def _fallback(action: str, details: dict[str, Any], equity_pct: float = 30.0) -> DecisionResult:
+    def _fallback(
+        action: str, details: dict[str, Any], equity_pct: Optional[float] = None
+    ) -> DecisionResult:
         return DecisionResult(
             action=action,
             is_in_range=False,
@@ -98,6 +103,25 @@ class DecisionEngine:
             equity_pct=equity_pct,
             is_fallback=True,
             details=details,
+            action_ranges={key: {} for key in ACTION_KEYS},
+        )
+
+    @staticmethod
+    def _position(table_size: int, position: str) -> str:
+        """Map aliases to labels available in seeded ranges, without indexing past seats."""
+        position = (position or "").strip().upper()
+        if table_size == 2 and position in {"BTN", "SB", "BTN/SB"}:
+            return "BTN/SB"
+        return position
+
+    @staticmethod
+    def _ranges(base_ranges: dict[str, Optional[str]], *, table_size: int, icm_stage: str,
+                has_ante: bool, opponent_style: str, position_risk: float = 0.5):
+        return build_action_ranges(
+            base_ranges,
+            context=RangeContext(table_size=max(2, min(9, table_size)), icm_stage=icm_stage,
+                                 has_ante=has_ante, opponent_style=opponent_style,
+                                 position_risk=position_risk),
         )
 
     def get_preflop_first_in_decision(
@@ -111,6 +135,8 @@ class DecisionEngine:
         has_ante: bool = True,
         opponent_style: str = "REG",
     ) -> DecisionResult:
+        table_size = max(2, min(9, table_size))
+        hero_position = self._position(table_size, hero_position)
         details: dict[str, Any] = {
             "table_size": table_size,
             "hero_position": hero_position,
@@ -130,16 +156,18 @@ class DecisionEngine:
                     .order_by(func.abs(OpenRange.stack_bb - stack_bb))
                 )
                 if row is None:
-                    return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else 40.0)
+                    return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
-                in_range = is_combo_in_range(hero_combo, row.range_str) if hero_combo else True
-                freqs = {"RAISE": 85, "PUSH": 15, "FOLD": 0} if in_range else {"RAISE": 0, "PUSH": 0, "FOLD": 100}
+                action_ranges = self._ranges(
+                    {"raise": row.range_str}, table_size=table_size, icm_stage=icm_stage,
+                    has_ante=has_ante, opponent_style=opponent_style,
+                )
                 return self._range_result(
                     action="OPEN_RAISE",
                     hero_combo=hero_combo,
-                    range_str=row.range_str,
+                    range_str=", ".join(action_ranges["raise"]),
                     details=details,
-                    frequencies=freqs,
+                    action_ranges=action_ranges,
                 )
 
             model: type[NashPushFold] | type[IcmPushFold]
@@ -179,17 +207,19 @@ class DecisionEngine:
                     details["used_ante_fallback"] = True
 
             if row is None:
-                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else 35.0)
+                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
             details["strategy_stack_bb"] = row.stack_bb
-            in_range = is_combo_in_range(hero_combo, row.range_str) if hero_combo else True
-            freqs = {"PUSH": 100, "FOLD": 0} if in_range else {"PUSH": 0, "FOLD": 100}
+            action_ranges = self._ranges(
+                {"push": row.range_str}, table_size=table_size, icm_stage=icm_stage,
+                has_ante=has_ante, opponent_style=opponent_style,
+            )
             return self._range_result(
                 action="PUSH",
                 hero_combo=hero_combo,
-                range_str=row.range_str,
+                range_str=", ".join(action_ranges["push"]),
                 details=details,
-                frequencies=freqs,
+                action_ranges=action_ranges,
             )
         except Exception as exc:
             details["error"] = str(exc)
@@ -204,13 +234,22 @@ class DecisionEngine:
         stack_bb: float,
         opponent_style: str,
         hero_combo: Optional[str] = None,
+        table_size: int = 9,
+        icm_stage: str = "NORMAL",
+        has_ante: bool = True,
     ) -> DecisionResult:
+        table_size = max(2, min(9, table_size))
+        hero_position = self._position(table_size, hero_position)
+        villain_position = self._position(table_size, villain_position)
         details: dict[str, Any] = {
             "hero_position": hero_position,
             "villain_position": villain_position,
             "villain_action": villain_action,
             "stack_bb": stack_bb,
             "opponent_style": opponent_style,
+            "table_size": table_size,
+            "icm_stage": icm_stage,
+            "has_ante": has_ante,
         }
         try:
             row = session.scalar(
@@ -224,7 +263,7 @@ class DecisionEngine:
                 .order_by(func.abs(FacingActionRange.stack_bb - stack_bb))
             )
             if row is None:
-                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else 30.0)
+                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
             # Передаем отдельные поддиапазоны в details
             details["strategy_stack_bb"] = row.stack_bb
@@ -232,30 +271,29 @@ class DecisionEngine:
             details["range_3bet_raise"] = row.range_3bet_raise
             details["range_call"] = row.range_call
 
+            raise_key = "isolate" if villain_action == "LIMP" else "raise"
+            action_ranges = self._ranges(
+                {"push": row.range_3bet_push, raise_key: row.range_3bet_raise,
+                 "call": row.range_call},
+                table_size=table_size, icm_stage=icm_stage, has_ante=has_ante,
+                opponent_style=opponent_style,
+            )
+
             if hero_combo:
                 action_options = (
-                    ("3BET_PUSH", row.range_3bet_push),
-                    ("ISOLATE" if villain_action == "LIMP" else "3BET_RAISE", row.range_3bet_raise),
-                    ("CALL", row.range_call),
+                    ("3BET_PUSH", "push"),
+                    ("ISOLATE" if villain_action == "LIMP" else "3BET_RAISE", raise_key),
+                    ("CALL", "call"),
                 )
-                for action, range_str in action_options:
+                for action, range_key in action_options:
+                    range_str = ", ".join(action_ranges[range_key])
                     if range_str and is_combo_in_range(hero_combo, range_str):
-                        freqs = {}
-                        if action == "3BET_PUSH":
-                            freqs = {"PUSH": 100, "RAISE": 0, "CALL": 0, "FOLD": 0}
-                        elif action == "ISOLATE":
-                            freqs = {"ISOLATE": 80, "CALL": 20, "FOLD": 0}
-                        elif action == "3BET_RAISE":
-                            freqs = {"RAISE": 70, "CALL": 30, "FOLD": 0}
-                        elif action == "CALL":
-                            freqs = {"CALL": 100, "FOLD": 0}
-
                         return self._range_result(
                             action=action,
                             hero_combo=hero_combo,
                             range_str=range_str,
                             details=details,
-                            frequencies=freqs,
+                            action_ranges=action_ranges,
                         )
                 return DecisionResult(
                     action="FOLD",
@@ -263,25 +301,26 @@ class DecisionEngine:
                     range_str=None,
                     range_stats=None,
                     recommended_sizing=None,
-                    frequencies={"FOLD": 100, "CALL": 0, "RAISE": 0},
+                    frequencies=action_frequencies(hero_combo, action_ranges),
                     equity_pct=get_combo_equity(hero_combo),
                     is_fallback=False,
                     details=details,
+                    action_ranges=action_ranges,
                 )
             else:
-                combined_ranges = [r for r in (row.range_3bet_push, row.range_3bet_raise, row.range_call) if r]
+                combined_ranges = [", ".join(action_ranges[key]) for key in ACTION_KEYS if action_ranges[key]]
                 combined_str = ", ".join(combined_ranges) if combined_ranges else None
-                freqs = {"ISOLATE": 30, "CALL": 50, "FOLD": 20} if villain_action == "LIMP" else {"RAISE": 25, "CALL": 45, "FOLD": 30}
                 return DecisionResult(
                     action="DEFEND",
                     is_in_range=False,
                     range_str=combined_str,
                     range_stats=get_range_stats(combined_str) if combined_str else None,
                     recommended_sizing=None,
-                    frequencies=freqs,
-                    equity_pct=get_range_equity(combined_str) if combined_str else 45.0,
+                    frequencies=None,
+                    equity_pct=get_range_equity(combined_str) if combined_str else None,
                     is_fallback=False,
                     details=details,
+                    action_ranges=action_ranges,
                 )
         except Exception as exc:
             details["error"] = str(exc)
@@ -323,12 +362,13 @@ class DecisionEngine:
                 return self._fallback("CHECK", details, equity_pct)
 
             frequencies = {
-                "CHECK": row.action_check_pct,
-                "BET": row.action_bet_pct,
-                "RAISE": row.action_raise_pct,
+                "check_pct": row.action_check_pct,
+                "bet_pct": row.action_bet_pct,
+                "raise_pct": row.action_raise_pct,
             }
             action = max(
-                (("CHECK", frequencies["CHECK"]), ("BET", frequencies["BET"]), ("RAISE", frequencies["RAISE"])),
+                (("CHECK", frequencies["check_pct"]), ("BET", frequencies["bet_pct"]),
+                 ("RAISE", frequencies["raise_pct"])),
                 key=lambda item: item[1],
             )[0]
             return DecisionResult(
