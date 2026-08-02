@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from src.db.base import Base
-from src.db.models import IcmPushFold, OpenRange, PostflopStrategy
+from src.db.models import FacingActionRange, IcmPushFold, NashPushFold, OpenRange, PostflopStrategy
 from src.db.seed_data import generate_tournament_data, seed_tournament_data
 
 
@@ -14,6 +14,9 @@ def test_generated_data_has_complete_strategy_dimensions() -> None:
     data = generate_tournament_data()
 
     assert len(data[IcmPushFold]) == 756
+    assert len(data[NashPushFold]) == 252
+    assert len(data[OpenRange]) == 189
+    assert len(data[FacingActionRange]) == 1944
     assert len(data[PostflopStrategy]) == 2 * 3 * 2 * 5 * 7 * 3
     assert all(
         row["action_check_pct"] + row["action_bet_pct"] + row["action_raise_pct"] == 100

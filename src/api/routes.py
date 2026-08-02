@@ -3,6 +3,7 @@ import redis.asyncio as aioredis
 
 from src.api.auth import get_current_user_id
 from src.api.schemas import (
+    DecisionResponse,
     PostflopDecisionRequest,
     PreflopDecisionRequest,
     SessionResponse,
@@ -60,7 +61,7 @@ async def update_session(body: UpdateSessionRequest, user_id: int = Depends(get_
     await session_manager.save_session(session)
     return _response(session)
 
-@router.post("/decision/preflop")
+@router.post("/decision/preflop", response_model=DecisionResponse)
 async def preflop(body: PreflopDecisionRequest, user_id: int = Depends(get_current_user_id)):
     session = await session_manager.get_or_create_session(user_id)
     with SessionLocal() as db:
@@ -68,17 +69,31 @@ async def preflop(body: PreflopDecisionRequest, user_id: int = Depends(get_curre
         stack = session_manager.get_stack_bb(session, db)
         if body.facing_action:
             result = decision_engine.get_preflop_facing_action_decision(
-                db, label, body.villain_position or "UTG", body.facing_action, stack,
-                session.opponent_style, body.hero_combo, session.table_size,
-                session.icm_stage, session.has_ante,
+                session=db,
+                hero_position=label,
+                villain_position=body.villain_position,
+                villain_action=body.facing_action,
+                stack_bb=stack,
+                opponent_style=session.opponent_style,
+                hero_combo=body.hero_combo,
+                table_size=session.table_size,
+                icm_stage=session.icm_stage,
+                has_ante=session.has_ante,
             )
         else:
             result = decision_engine.get_preflop_first_in_decision(
-                db, session.table_size, label, stack, body.hero_combo, session.icm_stage, session.has_ante, session.opponent_style
+                session=db,
+                table_size=session.table_size,
+                hero_position=label,
+                stack_bb=stack,
+                hero_combo=body.hero_combo,
+                icm_stage=session.icm_stage,
+                has_ante=session.has_ante,
+                opponent_style=session.opponent_style,
             )
     return result
 
-@router.post("/decision/postflop")
+@router.post("/decision/postflop", response_model=DecisionResponse)
 async def postflop(body: PostflopDecisionRequest, user_id: int = Depends(get_current_user_id)):
     session = await session_manager.get_or_create_session(user_id)
     with SessionLocal() as db:

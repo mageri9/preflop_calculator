@@ -471,6 +471,58 @@ def _validate_rows(rows: Iterable[dict[str, Any]]) -> None:
                 raise ValueError(f"Postflop frequencies do not total 100: {row}")
 
 
+def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> None:
+    """Fail before touching SQLite when a generated strategy dimension is missing."""
+
+    def require_exact(model: type[Any], expected: set[tuple[Any, ...]]) -> None:
+        primary_key = tuple(column.name for column in model.__table__.primary_key.columns)
+        actual = {tuple(row[field] for field in primary_key) for row in data[model]}
+        if len(actual) != len(data[model]):
+            raise ValueError(f"Duplicate primary keys generated for {model.__name__}")
+        missing = expected - actual
+        unexpected = actual - expected
+        if missing or unexpected:
+            raise ValueError(
+                f"Incomplete {model.__name__} coverage: "
+                f"missing={len(missing)}, unexpected={len(unexpected)}"
+            )
+
+    open_positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BTN/SB")
+    require_exact(OpenRange, {
+        (position, stack, style)
+        for position in open_positions for stack in OPEN_STACKS for style in STYLES
+    })
+    require_exact(NashPushFold, {
+        (size, position, stack, ante, "PUSH_ONLY")
+        for size, positions in POSITIONS_BY_SIZE.items()
+        for position in positions[:-1]
+        for stack in STACKS
+        for ante in (False, True)
+    })
+    require_exact(IcmPushFold, {
+        (size, position, stack, stage, ante, "PUSH_ONLY")
+        for size, positions in POSITIONS_BY_SIZE.items()
+        for position in positions[:-1]
+        for stack in STACKS
+        for stage in ICM_STAGES
+        for ante in (False, True)
+    })
+
+    positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB")
+    require_exact(FacingActionRange, {
+        (hero, villain, action, stack, style)
+        for villain_index, villain in enumerate(positions[:-1])
+        for hero in positions[villain_index + 1 :]
+        for stack in (15, 20, 30, 50, 80, 100)
+        for style in STYLES
+        for action in ("OPEN_2.5X", "LIMP", "PUSH")
+    })
+
+    for row in data[FacingActionRange]:
+        if not any(row[field] for field in ("range_3bet_push", "range_3bet_raise", "range_call")):
+            raise ValueError(f"FacingActionRange has no playable combinations: {row}")
+
+
 def _chunks(rows: Sequence[dict[str, Any]], size: int = 250) -> Iterable[Sequence[dict[str, Any]]]:
     for start in range(0, len(rows), size):
         yield rows[start : start + size]
@@ -495,6 +547,7 @@ def seed_tournament_data(
     bind: Engine = engine,
 ) -> dict[str, int]:
     data = generate_tournament_data()
+    _validate_strategy_coverage(data)
     for rows in data.values():
         _validate_rows(rows)
 

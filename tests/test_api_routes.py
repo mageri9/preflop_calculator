@@ -38,3 +38,20 @@ def test_preflop_decision():
     response = client.post("/api/decision/preflop", json={"hero_combo": "AJs"})
     assert response.status_code == 200
     assert "action" in response.json()
+    assert tuple(response.json()["action_ranges"]) == ("push", "raise", "isolate", "call")
+
+
+def test_preflop_request_validation():
+    response = client.post("/api/decision/preflop", json={"hero_combo": "not-a-hand"})
+    assert response.status_code == 422
+
+    response = client.post("/api/decision/preflop", json={"facing_action": "limp"})
+    assert response.status_code == 422
+
+
+def test_postflop_request_validation():
+    response = client.post(
+        "/api/decision/postflop",
+        json={"hero_cards": "AsKd", "flop_cards": "2h3c"},
+    )
+    assert response.status_code == 422
