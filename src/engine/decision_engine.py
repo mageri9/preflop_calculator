@@ -74,17 +74,20 @@ class DecisionEngine:
                 icm_stage, has_ante, opponent_style, hero_combo,
             )
             details.update(result.details)
+            action_ranges = details.pop("action_ranges", {key: {} for key in ACTION_KEYS})
             details.update({"pot_bb": result.pot_bb, "cost_to_call_bb": result.cost_to_call_bb,
                             "pot_odds_pct": result.pot_odds_pct,
                             "villain_link_ranges": result.villain_link_ranges})
             if not result.villain_link_ranges:
                 return self._fallback("FOLD", details, result.equity_pct)
+
+            frequencies = action_frequencies(hero_combo, action_ranges) if hero_combo else None
             return DecisionResult(
                 action=result.action, is_in_range=result.is_in_range, range_str=result.range_str,
                 range_stats=get_range_stats(result.range_str) if result.range_str else None,
-                recommended_sizing=None, frequencies=None, equity_pct=result.equity_pct,
+                recommended_sizing=None, frequencies=frequencies, equity_pct=result.equity_pct,
                 is_fallback=bool(result.details.get("warnings")), details=details,
-                action_ranges={key: {} for key in ACTION_KEYS},
+                action_ranges=action_ranges,
             )
         except Exception as exc:
             details["error"] = str(exc)
@@ -302,7 +305,6 @@ class DecisionEngine:
             if row is None:
                 return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
 
-            # Передаем отдельные поддиапазоны в details
             details["strategy_stack_bb"] = row.stack_bb
             details["range_3bet_push"] = row.range_3bet_push
             details["range_3bet_raise"] = row.range_3bet_raise

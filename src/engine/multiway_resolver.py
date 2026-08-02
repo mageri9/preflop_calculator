@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from src.db.models import FacingActionRange, IcmPushFold, LimpCallRange, LimpRange, NashPushFold, OpenRange
 from src.engine.position_utils import blinds_and_antes_bb, position_risk
 from src.engine.range_matcher import COMBO_WEIGHTS, get_combo_equity
-from src.engine.range_modifier import RangeContext, hand_vs_range_equity, modify_range
+from src.engine.range_modifier import ACTION_KEYS, RangeContext, hand_vs_range_equity, modify_range
 
 ActionType = Literal["LIMP", "OPEN", "CALL", "THREE_BET", "PUSH"]
 POSITION_ORDER = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "BTN/SB", "SB", "BB")
@@ -154,8 +154,16 @@ def compute_pot_state(action_sequence: Sequence[ActionEvent], stack_bb: float,
 def hero_vs_field_equity(hero_combo: str, villain_ranges: Sequence[Mapping[str, float]]) -> float:
     if not villain_ranges:
         return get_combo_equity(hero_combo)
-    narrowest = min(villain_ranges, key=lambda value: sum(COMBO_WEIGHTS.get(c, 0) * w / 100 for c, w in value.items()))
-    return hand_vs_range_equity(hero_combo, narrowest)
+
+    equities = [hand_vs_range_equity(hero_combo, v_range) for v_range in villain_ranges]
+    base_equity = sum(equities) / len(equities) if equities else get_combo_equity(hero_combo)
+
+    num_opponents = len(villain_ranges)
+    if num_opponents > 1:
+        multiway_penalty = (num_opponents - 1) * 7.5
+        base_equity = max(5.0, base_equity - multiway_penalty)
+
+    return round(base_equity, 2)
 
 
 def hero_vs_field_equity_v2(hero_combo: str, villain_ranges: Sequence[Mapping[str, float]]) -> float:
@@ -196,10 +204,26 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     pot = compute_pot_state(action_sequence, stack_bb, has_ante, table_size)
     odds = round(100 * pot.cost_to_call_bb / (pot.pot_bb + pot.cost_to_call_bb), 2)
     equity = hero_vs_field_equity(hero_combo, weighted_ranges) if hero_combo else None
+
+    num_opponents = max(1, len(weighted_ranges))
+    multiway_margin = SHOVE_MARGIN_PCT + (num_opponents - 1) * 3.0
+    call_margin = (num_opponents - 1) * 1.5
+
     if hero_combo:
-        action = "PUSH" if equity >= odds + SHOVE_MARGIN_PCT and not any(e.action == "PUSH" for e in action_sequence) else "CALL" if equity >= odds else "FOLD"
+        action = "PUSH" if equity >= odds + multiway_margin and not any(e.action == "PUSH" for e in action_sequence) else "CALL" if equity >= odds + call_margin else "FOLD"
     else:
         action = "DEFEND"
+
+    matrix_action_ranges: dict[str, dict[str, float]] = {key: {} for key in ACTION_KEYS}
+    if weighted_ranges:
+        for combo in COMBO_WEIGHTS:
+            combo_eq = hero_vs_field_equity(combo, weighted_ranges)
+            if combo_eq >= odds + multiway_margin and not any(e.action == "PUSH" for e in action_sequence):
+                matrix_action_ranges["push"][combo] = 100.0
+            elif combo_eq >= odds + call_margin:
+                matrix_action_ranges["call"][combo] = 100.0
+
     aggregate = min(links, key=lambda item: item["combinations"])["range_str"] if links else None
     return MultiwayResult(action, bool(hero_combo and action != "FOLD"), aggregate, pot.pot_bb,
-                          pot.cost_to_call_bb, equity, odds, links, {"warnings": warnings})
+                          pot.cost_to_call_bb, equity, odds, links,
+                          {"warnings": warnings, "action_ranges": matrix_action_ranges})
