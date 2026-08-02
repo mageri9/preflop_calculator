@@ -16,6 +16,70 @@ const POSITION_MAP: Record<number, string[]> = {
   2: ['BTN/SB', 'BB'],
 };
 
+// Сетка координат прижатая к углам и вертикальным столбикам по краям
+const SEAT_LAYOUTS: Record<number, Array<{ left: number; top: number }>> = {
+  9: [
+    { left: 50, top: 90 }, // 0: Hero (Снизу по центру)
+    { left: 88, top: 83 }, // 1: Столбик справа - нижний угол
+    { left: 92, top: 50 }, // 2: Столбик справа - центр
+    { left: 88, top: 17 }, // 3: Столбик справа - верхний угол
+    { left: 63, top: 10 }, // 4: Вверху справа
+    { left: 37, top: 10 }, // 5: Вверху слева (напротив)
+    { left: 12, top: 17 }, // 6: Столбик слева - верхний угол
+    { left: 8, top: 50 },  // 7: Столбик слева - центр
+    { left: 12, top: 83 }, // 8: Столбик слева - нижний угол
+  ],
+  8: [
+    { left: 50, top: 90 }, // 0: Hero
+    { left: 88, top: 83 }, // 1: Столбик справа - нижний угол
+    { left: 92, top: 50 }, // 2: Столбик справа - центр
+    { left: 88, top: 17 }, // 3: Столбик справа - верхний угол
+    { left: 50, top: 10 }, // 4: Вверху по центру (напротив)
+    { left: 12, top: 17 }, // 5: Столбик слева - верхний угол
+    { left: 8, top: 50 },  // 6: Столбик слева - центр
+    { left: 12, top: 83 }, // 7: Столбик слева - нижний угол
+  ],
+  7: [
+    { left: 50, top: 90 },
+    { left: 88, top: 81 },
+    { left: 92, top: 48 },
+    { left: 82, top: 14 },
+    { left: 18, top: 14 },
+    { left: 8, top: 48 },
+    { left: 12, top: 81 },
+  ],
+  6: [
+    { left: 50, top: 90 },
+    { left: 88, top: 80 },
+    { left: 88, top: 20 },
+    { left: 50, top: 10 },
+    { left: 12, top: 20 },
+    { left: 12, top: 80 },
+  ],
+  5: [
+    { left: 50, top: 90 },
+    { left: 90, top: 60 },
+    { left: 70, top: 14 },
+    { left: 30, top: 14 },
+    { left: 10, top: 60 },
+  ],
+  4: [
+    { left: 50, top: 90 },
+    { left: 90, top: 50 },
+    { left: 50, top: 10 },
+    { left: 10, top: 50 },
+  ],
+  3: [
+    { left: 50, top: 90 },
+    { left: 80, top: 18 },
+    { left: 20, top: 18 },
+  ],
+  2: [
+    { left: 50, top: 90 },
+    { left: 50, top: 10 },
+  ],
+};
+
 function getPositionLabel(seat: number, btnPosition: number, tableSize: number): string {
   const seatIndex = (seat - btnPosition + tableSize) % tableSize;
   const labels = POSITION_MAP[tableSize] || POSITION_MAP[6];
@@ -28,20 +92,22 @@ export function PokerTableMap({
   heroSeat,
   heroPositionLabel,
 }: PokerTableMapProps) {
+  const layout = SEAT_LAYOUTS[tableSize] || SEAT_LAYOUTS[9];
+
   const seats = Array.from({ length: tableSize }, (_, index) => {
     const seat = index + 1;
-    // Хиро всегда располагается снизу по центру (angle = Math.PI / 2)
-    const angle = Math.PI / 2 + ((seat - heroSeat) * Math.PI * 2) / tableSize;
+    const offset = (seat - heroSeat + tableSize) % tableSize;
+    const pos = layout[offset] || { left: 50, top: 50 };
 
     const posLabel = getPositionLabel(seat, btnPosition, tableSize);
 
     return {
       seat,
       posLabel,
-      seatLeft: 50 + Math.cos(angle) * 43,
-      seatTop: 50 + Math.sin(angle) * 38,
-      chipLeft: 50 + Math.cos(angle) * 28,
-      chipTop: 50 + Math.sin(angle) * 24,
+      seatLeft: pos.left,
+      seatTop: pos.top,
+      chipLeft: pos.left + (50 - pos.left) * 0.35,
+      chipTop: pos.top + (50 - pos.top) * 0.35,
     };
   });
 
