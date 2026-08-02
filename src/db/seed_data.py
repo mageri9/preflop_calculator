@@ -228,44 +228,130 @@ def generate_icm_ranges() -> list[dict[str, Any]]:
 
 def generate_facing_action_ranges() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    positions = POSITIONS_BY_SIZE[9][:-1]
-    for villain_index, villain in enumerate(positions[:-1]):
-        for hero in positions[villain_index + 1 :]:
-            for stack in (15, 20, 30, 50, 80):
+    all_positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB")
+
+    for villain_index, villain in enumerate(all_positions[:-1]):
+        for hero in all_positions[villain_index + 1 :]:
+            for stack in (15, 20, 30, 50, 80, 100):
                 for style in STYLES:
                     for action in ("OPEN_2.5X", "LIMP", "PUSH"):
-                        aggressive = style == "LOOSE"
-                        short = stack <= 20
+                        is_late_villain = villain in ("CO", "BTN", "SB")
+                        is_bb_hero = hero == "BB"
+                        is_short = stack <= 20
+                        is_medium = 20 < stack <= 50
+                        is_loose = style == "LOOSE"
+                        is_tight = style == "TIGHT"
+
                         if action == "PUSH":
                             push_range = None
                             raise_range = None
-                            call_range = "77+, AJs+, AQo+" if aggressive else "TT+, AQs+, AKo"
+                            if is_bb_hero and is_late_villain:
+                                call_range = (
+                                    "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, A2o+, K8o+, QTo+, JTo"
+                                    if is_loose
+                                    else "55+, A5s+, K9s+, QTs+, A8o+, KQo"
+                                    if not is_tight
+                                    else "77+, ATs+, KQs, AJo+"
+                                )
+                            elif is_late_villain:
+                                call_range = (
+                                    "66+, A8s+, KQs, AJo+"
+                                    if is_loose
+                                    else "88+, ATs+, AQo+"
+                                    if not is_tight
+                                    else "TT+, AQs+, AKo"
+                                )
+                            else:
+                                call_range = (
+                                    "88+, ATs+, AQo+"
+                                    if is_loose
+                                    else "TT+, AQs+, AKo"
+                                    if not is_tight
+                                    else "JJ+, AKs, AKo"
+                                )
+
                         elif action == "LIMP":
-                            push_range = "77+, AJs+, AQo+" if short else None
-                            raise_range = None if short else "88+, ATs+, KQs, AJo+"
-                            call_range = "22+, A2s+, K9s+, QTs+, JTs, T9s, ATo+, KQo"
-                        else:
-                            push_range = (
-                                "88+, AQs+, AKo" if short and aggressive else
-                                "TT+, AKs, AKo" if short else None
-                            )
-                            raise_range = (
-                                "99+, AJs+, KQs, AQo+" if aggressive else "JJ+, AQs+, AKo"
-                            ) if not short else None
-                            call_range = (
-                                "22+, A2s+, KTs+, QTs+, JTs, T9s, AJo+, KQo"
-                                if aggressive else "66+, ATs+, KJs+, QJs, AJo+, KQo"
-                            )
-                        rows.append({
-                            "hero_position": hero,
-                            "villain_position": villain,
-                            "villain_action": action,
-                            "stack_bb": stack,
-                            "opponent_style": style,
-                            "range_3bet_push": push_range,
-                            "range_3bet_raise": raise_range,
-                            "range_call": call_range,
-                        })
+                            if is_short:
+                                push_range = (
+                                    "55+, A8s+, KTs+, AJo+"
+                                    if is_late_villain
+                                    else "88+, ATs+, AQo+"
+                                )
+                                raise_range = None
+                                call_range = (
+                                    "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, A2o+, K7o+"
+                                    if is_bb_hero
+                                    else "44-22, A2s+, K9s+, QTs+, JTs"
+                                )
+                            else:
+                                push_range = None
+                                raise_range = (
+                                    "22+, A2s+, K8s+, Q9s+, J9s+, A7o+, K9o+"
+                                    if (is_late_villain or is_bb_hero)
+                                    else "77+, ATs+, KQs, AJo+"
+                                )
+                                call_range = (
+                                    "66-22, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, 87s"
+                                    if not is_bb_hero
+                                    else "55-22, A2s+, K2s+, Q2s+, J5s+, T6s+, 96s+, 86s+, 75s+"
+                                )
+
+                        else:  # OPEN_2.5X
+                            if is_short:
+                                push_range = (
+                                    "TT-77, AJs+, AQo, AKo"
+                                    if is_late_villain
+                                    else "JJ-TT, AKs, AKo"
+                                )
+                                raise_range = (
+                                    "QQ+, AKs"
+                                    if not is_late_villain
+                                    else "JJ+, AKs, AKo"
+                                )
+                                call_range = (
+                                    "22+, A2s+, K2s+, Q5s+, J7s+, T7s+, 97s+, 86s+, A2o+, K7o+, Q9o+"
+                                    if is_bb_hero
+                                    else "99-55, ATs+, KQs, QJs, JTs"
+                                )
+                            elif is_medium:
+                                push_range = (
+                                    "TT-99, AJs, AQo" if is_late_villain else None
+                                )
+                                raise_range = (
+                                    "88+, AJs+, KQs, AQo+"
+                                    if is_late_villain
+                                    else "JJ+, AQs+, AKo"
+                                )
+                                call_range = (
+                                    "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o"
+                                    if is_bb_hero
+                                    else "TT-22, A8s+, KTs+, QTs+, JTs, T9s, 98s, ATo+"
+                                )
+                            else:  # Deep stack (80-100 BB)
+                                push_range = None
+                                raise_range = (
+                                    "77+, A9s+, KTs+, QTs+, JTs, T9s, AJo+, KQo"
+                                    if is_late_villain
+                                    else "99+, AJs+, KQs, AQo+"
+                                )
+                                call_range = (
+                                    "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K3o+, Q7o+, J7o+, T7o+, 97o+"
+                                    if is_bb_hero
+                                    else "99-22, A2s+, K9s+, Q9s+, J9s+, T8s+, 98s, 87s, 76s, 65s"
+                                )
+
+                        rows.append(
+                            {
+                                "hero_position": hero,
+                                "villain_position": villain,
+                                "villain_action": action,
+                                "stack_bb": stack,
+                                "opponent_style": style,
+                                "range_3bet_push": push_range,
+                                "range_3bet_raise": raise_range,
+                                "range_call": call_range,
+                            }
+                        )
     return rows
 
 
