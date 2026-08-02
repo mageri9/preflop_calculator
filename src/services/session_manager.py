@@ -64,9 +64,35 @@ class SessionManager:
             ex=self._ttl,
         )
 
-    async def next_hand(self, user_id: int) -> TableSession:
+    async def next_hand(self, user_id: int, db_session: Session | None = None) -> TableSession:
         session = await self.get_or_create_session(user_id)
         session.btn_position = (session.btn_position % session.table_size) + 1
+
+        if db_session is not None:
+            label = self.get_hero_position_label(session, db_session)
+            statement = select(BlindStructure).where(
+                BlindStructure.structure_id == session.structure_id,
+                BlindStructure.level == session.blind_level,
+            )
+            structure = db_session.scalar(statement)
+            sb_chips = structure.sb_chips if structure is not None else 50
+            bb_chips = structure.bb_chips if structure is not None else 100
+            ante_chips = structure.ante_chips if structure is not None else (bb_chips // 8)
+            if session.has_ante and ante_chips == 0:
+                ante_chips = max(1, bb_chips // 8)
+
+            deduction = 0
+            if session.has_ante:
+                deduction += ante_chips
+
+            if label in ("SB", "BTN/SB"):
+                deduction += sb_chips
+            elif label == "BB":
+                deduction += bb_chips
+
+            if deduction > 0:
+                session.stack_chips = max(1, session.stack_chips - deduction)
+
         await self.save_session(session)
         return session
 
