@@ -80,7 +80,14 @@ def validate_action_sequence(events: Sequence[ActionEvent]) -> None:
             if not aggressive_seen or three_bet_seen:
                 raise ValueError("THREE_BET requires one preceding OPEN or PUSH; 4-bets are unsupported")
             three_bet_seen = True
-        if event.action in {"OPEN", "PUSH"}:
+        elif event.action == "PUSH":
+            if not aggressive_seen:
+                aggressive_seen = True
+            elif not three_bet_seen:
+                three_bet_seen = True
+            else:
+                raise ValueError("More than two aggressive actions are unsupported")
+        elif event.action == "OPEN":
             if aggressive_seen:
                 raise ValueError("Only one opening aggressive action is supported")
             aggressive_seen = True
@@ -93,13 +100,16 @@ def resolve_link_range(db: Session, event: ActionEvent, stack_bb: float, opponen
     if event.action == "OPEN":
         row = _nearest_by_stack(db, OpenRange, stack_bb, position=event.position, style=opponent_style)
         return row.range_str if row else None
+
     if event.action == "LIMP":
         row = _nearest_by_stack(db, LimpRange, stack_bb, position=event.position, style=opponent_style)
         return row.range_str if row else None
+
     if event.action == "CALL" and preceding_action == "LIMP":
         row = _nearest_by_stack(db, LimpCallRange, stack_bb, position=event.position, style=opponent_style)
         return row.range_str if row else None
-    if event.action == "PUSH":
+
+    if event.action == "PUSH" and preceding_action is None:
         model = NashPushFold if icm_stage == "NORMAL" else IcmPushFold
         filters: dict[str, Any] = {"table_size": table_size, "position": event.position,
                                    "has_ante": has_ante, "action": "PUSH_ONLY"}
@@ -107,14 +117,17 @@ def resolve_link_range(db: Session, event: ActionEvent, stack_bb: float, opponen
             filters["payout_stage"] = icm_stage
         row = _nearest_by_stack(db, model, stack_bb, **filters)
         return row.range_str if row else None
+
     villain_action = "PUSH" if preceding_action == "PUSH" else "LIMP" if preceding_action == "LIMP" else "OPEN_2.5X"
     row = _nearest_by_stack(db, FacingActionRange, stack_bb, hero_position=event.position,
                             villain_position=preceding_position or _preceding_position(db, event, hero_position),
                             villain_action=villain_action, opponent_style=opponent_style)
     if not row:
         return None
-    if event.action == "THREE_BET":
-        return row.range_3bet_push if stack_bb <= 20 and row.range_3bet_push else row.range_3bet_raise
+
+    if event.action in {"THREE_BET", "PUSH"}:
+        return row.range_3bet_push if stack_bb <= 20 and row.range_3bet_push else (row.range_3bet_raise or row.range_3bet_push)
+
     return row.range_call
 
 

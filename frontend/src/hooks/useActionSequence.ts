@@ -21,13 +21,15 @@ export function sortActionSequence(sequence: ActionEvent[]): ActionEvent[] {
 }
 
 export function getValidActionsForSeat(sequenceBefore: ActionEvent[]): ActionType[] {
-  const has3Bet = sequenceBefore.some((e) => e.action === 'THREE_BET');
-  if (has3Bet) {
+  const aggressiveCount = sequenceBefore.filter(
+    (e) => e.action === 'OPEN' || e.action === 'PUSH' || e.action === 'THREE_BET'
+  ).length;
+
+  if (aggressiveCount >= 2) {
     return ['CALL', 'PUSH'];
   }
 
-  const hasOpen = sequenceBefore.some((e) => e.action === 'OPEN' || e.action === 'PUSH');
-  if (hasOpen) {
+  if (aggressiveCount === 1) {
     return ['CALL', 'THREE_BET', 'PUSH'];
   }
 

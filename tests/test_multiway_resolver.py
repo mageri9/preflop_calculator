@@ -119,3 +119,16 @@ def test_missing_link_is_a_warning_not_an_exception(db) -> None:
         db, "BB", [ActionEvent("BB", "LIMP")], 30, 9, "NORMAL", False, "REG", "AA",
     )
     assert result.details["warnings"]
+
+
+def test_push_reshove_call_sequence(db) -> None:
+    events = [
+        ActionEvent("UTG", "PUSH"),
+        ActionEvent("BTN", "PUSH"),
+        ActionEvent("SB", "CALL"),
+        ActionEvent("BB", "CALL"),
+    ]
+    validate_action_sequence(events)
+    result = resolve_multiway_decision(db, "BB", events, 10, 9, "NORMAL", True, "REG")
+    assert result.pot_bb > 10.0
+    assert len(result.villain_link_ranges) == 4
