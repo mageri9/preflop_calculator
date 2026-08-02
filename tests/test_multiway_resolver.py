@@ -13,6 +13,8 @@ from src.engine.multiway_resolver import (
     resolve_multiway_decision,
     validate_action_sequence,
 )
+from src.engine.range_matcher import COMBO_WEIGHTS
+from src.engine.range_modifier import action_frequencies
 
 
 def test_sequence_validation() -> None:
@@ -132,3 +134,39 @@ def test_push_reshove_call_sequence(db) -> None:
     result = resolve_multiway_decision(db, "BB", events, 10, 9, "NORMAL", True, "REG")
     assert result.pot_bb > 10.0
     assert len(result.villain_link_ranges) == 4
+    assert not result.details["action_ranges"]["push"]
+
+
+def test_multiway_matrix_contains_normalized_mixed_frequencies(db) -> None:
+    result = resolve_multiway_decision(
+        db, "BB", [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")],
+        30, 9, "NORMAL", True, "REG", "22",
+    )
+    ranges = result.details["action_ranges"]
+
+    assert ranges["push"] and ranges["call"]
+    assert any(combo in ranges["push"] and combo in ranges["call"] for combo in COMBO_WEIGHTS)
+    for combo in COMBO_WEIGHTS:
+        assert sum(action_frequencies(combo, ranges).values()) == 100.0
+
+
+def test_multiway_uses_stack_and_icm_temperature(db) -> None:
+    events = [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")]
+    short = resolve_multiway_decision(db, "BB", events, 20, 9, "NORMAL", True, "REG")
+    deep = resolve_multiway_decision(db, "BB", events, 30, 9, "NORMAL", True, "REG")
+    icm = resolve_multiway_decision(db, "BB", events, 30, 9, "BUBBLE", True, "REG")
+
+    assert short.details["temperature"] == 4.0
+    assert deep.details["temperature"] == 9.0
+    assert icm.details["temperature"] == 7.65
+
+
+def test_multiway_strong_hand_remains_near_deterministic(db) -> None:
+    result = resolve_multiway_decision(
+        db, "BB", [ActionEvent("UTG", "OPEN"), ActionEvent("CO", "CALL")],
+        10, 9, "NORMAL", True, "REG", "AA",
+    )
+    frequencies = action_frequencies("AA", result.details["action_ranges"])
+
+    assert result.action == "PUSH"
+    assert frequencies["push"] > 98

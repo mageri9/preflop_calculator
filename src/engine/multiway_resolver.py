@@ -11,7 +11,16 @@ from sqlalchemy.orm import Session
 from src.db.models import FacingActionRange, IcmPushFold, LimpCallRange, LimpRange, NashPushFold, OpenRange
 from src.engine.position_utils import blinds_and_antes_bb, position_risk
 from src.engine.range_matcher import COMBO_WEIGHTS, get_combo_equity
-from src.engine.range_modifier import ACTION_KEYS, RangeContext, hand_vs_range_equity, modify_range
+from src.engine.range_modifier import (
+    ACTION_KEYS,
+    MIN_DISPLAY_FREQUENCY,
+    RangeContext,
+    action_frequencies,
+    hand_vs_range_equity,
+    mixed_frequencies,
+    modify_range,
+    resolve_temperature,
+)
 
 ActionType = Literal["LIMP", "OPEN", "CALL", "THREE_BET", "PUSH"]
 POSITION_ORDER = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "BTN/SB", "SB", "BB")
@@ -126,7 +135,11 @@ def resolve_link_range(db: Session, event: ActionEvent, stack_bb: float, opponen
         return None
 
     if event.action in {"THREE_BET", "PUSH"}:
-        return row.range_3bet_push if stack_bb <= 20 and row.range_3bet_push else (row.range_3bet_raise or row.range_3bet_push)
+        return (
+            row.range_3bet_push
+            if stack_bb <= 20 and row.range_3bet_push
+            else (row.range_3bet_raise or row.range_3bet_push or row.range_call)
+        )
 
     return row.range_call
 
@@ -171,6 +184,34 @@ def hero_vs_field_equity_v2(hero_combo: str, villain_ranges: Sequence[Mapping[st
     return hero_vs_field_equity(hero_combo, villain_ranges)
 
 
+def build_multiway_action_ranges(
+    villain_ranges: Sequence[Mapping[str, float]],
+    *,
+    call_threshold: float,
+    push_threshold: float,
+    context: RangeContext,
+    stack_bb: float,
+    can_push: bool,
+) -> dict[str, dict[str, float]]:
+    """Build mixed hero actions from equity thresholds against the full field."""
+
+    result: dict[str, dict[str, float]] = {key: {} for key in ACTION_KEYS}
+    if not villain_ranges:
+        return result
+    ordered_actions = [("call", call_threshold)]
+    if can_push:
+        ordered_actions.append(("push", max(call_threshold, push_threshold)))
+    temperature = resolve_temperature(context, "shove" if stack_bb <= 20 else "wide")
+    for combo in COMBO_WEIGHTS:
+        score = hero_vs_field_equity(combo, villain_ranges)
+        frequencies = mixed_frequencies(score, ordered_actions, temperature)
+        for action, _ in ordered_actions:
+            frequency = frequencies[action]
+            if frequency > MIN_DISPLAY_FREQUENCY:
+                result[action][combo] = frequency
+    return result
+
+
 def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: Sequence[ActionEvent],
                               stack_bb: float, table_size: int, icm_stage: str, has_ante: bool,
                               opponent_style: str, hero_combo: str | None = None) -> MultiwayResult:
@@ -209,21 +250,36 @@ def resolve_multiway_decision(db: Session, hero_position: str, action_sequence: 
     multiway_margin = SHOVE_MARGIN_PCT + (num_opponents - 1) * 3.0
     call_margin = (num_opponents - 1) * 1.5
 
+    can_push = not any(event.action == "PUSH" for event in action_sequence)
+    hero_context = RangeContext(
+        table_size=table_size,
+        icm_stage=icm_stage,
+        has_ante=has_ante,
+        opponent_style=opponent_style,
+        position_risk=position_risk(table_size, hero_position),
+    )
+    matrix_action_ranges = build_multiway_action_ranges(
+        weighted_ranges,
+        call_threshold=odds + call_margin,
+        push_threshold=odds + multiway_margin,
+        context=hero_context,
+        stack_bb=stack_bb,
+        can_push=can_push,
+    )
     if hero_combo:
-        action = "PUSH" if equity >= odds + multiway_margin and not any(e.action == "PUSH" for e in action_sequence) else "CALL" if equity >= odds + call_margin else "FOLD"
+        frequencies = action_frequencies(hero_combo, matrix_action_ranges)
+        action = max(
+            (("PUSH", frequencies["push"]), ("CALL", frequencies["call"]),
+             ("FOLD", frequencies["fold"])),
+            key=lambda item: item[1],
+        )[0]
     else:
         action = "DEFEND"
-
-    matrix_action_ranges: dict[str, dict[str, float]] = {key: {} for key in ACTION_KEYS}
-    if weighted_ranges:
-        for combo in COMBO_WEIGHTS:
-            combo_eq = hero_vs_field_equity(combo, weighted_ranges)
-            if combo_eq >= odds + multiway_margin and not any(e.action == "PUSH" for e in action_sequence):
-                matrix_action_ranges["push"][combo] = 100.0
-            elif combo_eq >= odds + call_margin:
-                matrix_action_ranges["call"][combo] = 100.0
 
     aggregate = min(links, key=lambda item: item["combinations"])["range_str"] if links else None
     return MultiwayResult(action, bool(hero_combo and action != "FOLD"), aggregate, pot.pot_bb,
                           pot.cost_to_call_bb, equity, odds, links,
-                          {"warnings": warnings, "action_ranges": matrix_action_ranges})
+                          {"warnings": warnings, "action_ranges": matrix_action_ranges,
+                           "temperature": resolve_temperature(
+                               hero_context, "shove" if stack_bb <= 20 else "wide"
+                           )})
