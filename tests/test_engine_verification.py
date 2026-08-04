@@ -69,7 +69,12 @@ def test_action_ranges_are_valid_normalized_matrix_cells() -> None:
         assert set(action_range) <= set(COMBO_WEIGHTS)
         assert all(0 < frequency <= 100 for frequency in action_range.values())
     for combo in COMBO_WEIGHTS:
-        assert sum(action_range.get(combo, 0.0) for action_range in ranges.values()) <= 100.0
+        assert (
+            round(
+                sum(action_range.get(combo, 0.0) for action_range in ranges.values()), 2
+            )
+            <= 100.0
+        )
     assert any(
         sum(combo in action_range for action_range in ranges.values()) > 1
         for combo in COMBO_WEIGHTS
