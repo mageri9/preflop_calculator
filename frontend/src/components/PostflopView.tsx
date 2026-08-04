@@ -36,7 +36,8 @@ export function PostflopView(props: PostflopViewProps) {
     ['BET', result?.frequencies?.BET ?? result?.frequencies?.bet_pct ?? 0, 'bg-amber-400'],
     ['CHECK', result?.frequencies?.CHECK ?? result?.frequencies?.check_pct ?? 0, 'bg-sky-400'],
     ['RAISE', result?.frequencies?.RAISE ?? result?.frequencies?.raise_pct ?? 0, 'bg-amber-400'],
-    ['CALL', result?.frequencies?.CALL ?? 0, 'bg-emerald-400'],
+    ['CALL', result?.frequencies?.CALL ?? result?.frequencies?.call_pct ?? 0, 'bg-emerald-400'],
+    ['FOLD', result?.frequencies?.FOLD ?? result?.frequencies?.fold_pct ?? 0, 'bg-stone-500'],
   ] as const;
 
   const current = { potType, heroRole, heroPosition };

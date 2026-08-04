@@ -48,22 +48,22 @@ const getActionColorClass = (act: string, pct: number) => {
     case '3BET_PUSH':
     case '4BET_PUSH':
     case 'SQUEEZE_PUSH':
-      return 'border border-rose-500 bg-rose-500/30 text-rose-300'; // КРАСНЫЙ ДЛЯ ПУША
+      return 'border border-rose-500 bg-rose-500/30 text-rose-300';
     case 'OPEN_RAISE':
     case 'RAISE':
     case '3BET_RAISE':
     case '4BET_RAISE':
     case 'SQUEEZE':
     case 'BET':
-      return 'border border-amber-400 bg-amber-500/20 text-amber-300'; // ЖЕЛТЫЙ ДЛЯ РЕЙЗА
+      return 'border border-amber-400 bg-amber-500/20 text-amber-300';
     case 'ISOLATE':
     case 'OPEN_LIMP':
-      return 'border border-blue-400 bg-blue-500/25 text-blue-300'; // СИНИЙ ДЛЯ ИЗОЛЕЙТА
+      return 'border border-blue-400 bg-blue-500/25 text-blue-300';
     case 'CALL':
     case 'DEFEND':
-      return 'border border-emerald-400 bg-emerald-500/20 text-emerald-300'; // ЗЕЛЕНЫЙ ДЛЯ КОЛЛА
+      return 'border border-emerald-400 bg-emerald-500/20 text-emerald-300';
     case 'CHECK':
-      return 'border border-cyan-400 bg-cyan-500/20 text-cyan-300'; // ГОЛУБОЙ ДЛЯ ЧЕКА
+      return 'border border-cyan-400 bg-cyan-500/20 text-cyan-300';
     case 'FOLD':
       return 'border border-stone-700/60 bg-stone-800/60 text-stone-500 opacity-60';
     default:
@@ -198,13 +198,11 @@ export default function App() {
   const handleFacingActionChange = (action: FacingAction) => {
     if (facingAction === 'MULTIWAY' && action !== 'MULTIWAY') clearActionSequence();
     setFacingAction(action);
-    setSelectedCombo(undefined);
   };
 
   const handleVillainSeatClick = (position: string) => {
     if (facingAction !== 'MULTIWAY') {
       setFacingAction('MULTIWAY');
-      setSelectedCombo(undefined);
     }
     cycleVillain(position as VillainPosition);
   };
@@ -252,11 +250,9 @@ export default function App() {
                   void resetSession();
                 }}
                 onChangeTableSize={(size) => {
-                  setSelectedCombo(undefined);
                   void updateTableSize(size);
                 }}
                 onUpdateSession={(payload) => {
-                  setSelectedCombo(undefined);
                   void updateSession(payload);
                 }}
                 isLoading={loading}
