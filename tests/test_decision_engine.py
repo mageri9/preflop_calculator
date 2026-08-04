@@ -7,7 +7,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.base import Base
-from src.db.models import FacingActionRange, NashPushFold, OpenRange, PostflopStrategy
+from src.db.models import (
+    FacingActionRange,
+    NashPushFold,
+    OpenRange,
+    PostflopStrategy,
+    LimpRange,
+)
 from src.engine.range_modifier import ACTION_KEYS
 from src.engine.decision_engine import DecisionEngine
 
@@ -114,3 +120,26 @@ def test_empty_database_returns_safe_fallbacks(session: Session, engine: Decisio
     assert postflop.recommended_sizing == "CHECK"
     assert tuple(preflop.action_ranges) == ACTION_KEYS
     assert all(not value for value in preflop.action_ranges.values())
+
+
+def test_first_in_mixes_open_raise_and_open_limp(session: Session, engine: DecisionEngine) -> None:
+    session.add(OpenRange(
+        position="SB", stack_bb=30, style="REG", range_str="77+, ATs+, KQs",
+    ))
+    session.add(LimpRange(
+        position="SB", stack_bb=30, style="REG", range_str="55-22, A5s-A2s, KJs-KTs",
+    ))
+    session.commit()
+
+    raise_result = engine.get_preflop_first_in_decision(session, 9, "SB", 30, "AJs")
+    limp_result = engine.get_preflop_first_in_decision(session, 9, "SB", 30, "A3s")
+
+    assert raise_result.action == "OPEN_RAISE"
+    assert raise_result.frequencies["OPEN_RAISE"] > 0
+
+    assert limp_result.action == "OPEN_LIMP"
+    assert limp_result.frequencies["OPEN_LIMP"] > 0
+
+    assert tuple(raise_result.action_ranges) == ACTION_KEYS
+    assert raise_result.action_ranges["raise"]
+    assert raise_result.action_ranges["isolate"]

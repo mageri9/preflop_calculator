@@ -199,95 +199,134 @@ class DecisionEngine:
             "opponent_style": opponent_style,
         }
         try:
-            if stack_bb > 15.0:
-                row = _nearest_by_stack(
-                    session, OpenRange, stack_bb, position=hero_position, style=opponent_style
-                )
-                if row is None:
-                    return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
+            base_ranges: dict[str, Optional[str]] = {}
 
-                # Check if Hero position is SB / BTN/SB and hand is in LimpRange for open limp
-                if hero_position in ("SB", "BTN/SB") and hero_combo:
-                    limp_row = _nearest_by_stack(
-                        session, LimpRange, stack_bb, position=hero_position, style=opponent_style
+            # 1. Диапазон рейза открытия (OPEN_RAISE)
+            open_row = _nearest_by_stack(
+                session, OpenRange, stack_bb, position=hero_position, style=opponent_style
+            )
+            if open_row:
+                base_ranges["raise"] = open_row.range_str
+                details["strategy_stack_bb"] = open_row.stack_bb
+
+            # 2. Диапазон лимпа открытия (OPEN_LIMP)
+            limp_row = _nearest_by_stack(
+                session, LimpRange, stack_bb, position=hero_position, style=opponent_style
+            )
+            if limp_row:
+                base_ranges["isolate"] = limp_row.range_str
+
+            # 3. Диапазон пуша открытия для коротких стеков (PUSH)
+            if stack_bb <= 20.0:
+                model: type[NashPushFold] | type[IcmPushFold]
+                if icm_stage == "NORMAL":
+                    model = NashPushFold
+                    statement = select(model).where(
+                        model.table_size == table_size,
+                        model.position == hero_position,
+                        model.has_ante == has_ante,
+                        model.action == "PUSH_ONLY",
                     )
-                    if limp_row and is_combo_in_range(hero_combo, limp_row.range_str) and not is_combo_in_range(hero_combo, row.range_str):
-                        action_ranges = self._ranges(
-                            {"isolate": limp_row.range_str, "raise": row.range_str},
-                            table_size=table_size, icm_stage=icm_stage,
-                            has_ante=has_ante, opponent_style=opponent_style,
-                            spot_kind="wide",
-                        )
-                        return self._range_result(
-                            action="OPEN_LIMP",
-                            hero_combo=hero_combo,
-                            range_str=limp_row.range_str,
-                            details=details,
-                            action_ranges=action_ranges,
-                        )
+                else:
+                    model = IcmPushFold
+                    statement = select(model).where(
+                        model.table_size == table_size,
+                        model.position == hero_position,
+                        model.payout_stage == icm_stage,
+                        model.has_ante == has_ante,
+                        model.action == "PUSH_ONLY",
+                    )
+                push_row = session.scalar(statement.order_by(func.abs(model.stack_bb - stack_bb)))
+                if push_row is None and has_ante:
+                    fallback_statement = select(model).where(
+                        model.table_size == table_size,
+                        model.position == hero_position,
+                        model.has_ante.is_(False),
+                        model.action == "PUSH_ONLY",
+                    )
+                    if icm_stage != "NORMAL":
+                        fallback_statement = fallback_statement.where(model.payout_stage == icm_stage)
+                    push_row = session.scalar(
+                        fallback_statement.order_by(func.abs(model.stack_bb - stack_bb))
+                    )
+                    if push_row is not None:
+                        details["used_ante_fallback"] = True
 
-                action_ranges = self._ranges(
-                    {"raise": row.range_str}, table_size=table_size, icm_stage=icm_stage,
-                    has_ante=has_ante, opponent_style=opponent_style,
-                    spot_kind="wide",
+                if push_row:
+                    base_ranges["push"] = push_row.range_str
+                    details["strategy_stack_bb"] = push_row.stack_bb
+
+            if not any(base_ranges.values()):
+                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
+
+            # Генерация 4-цветной матрицы для 13x13 и расчёта смешанных частот
+            action_ranges = self._ranges(
+                base_ranges,
+                table_size=table_size,
+                icm_stage=icm_stage,
+                has_ante=has_ante,
+                opponent_style=opponent_style,
+                spot_kind="shove" if stack_bb <= 15 else "wide",
+            )
+
+            if hero_combo:
+                freq_raw = action_frequencies(hero_combo, action_ranges)
+                frequencies = {
+                    "PUSH": freq_raw["push"],
+                    "OPEN_RAISE": freq_raw["raise"],
+                    "OPEN_LIMP": freq_raw["isolate"],
+                    "FOLD": freq_raw["fold"],
+                }
+
+                action_candidates = [
+                    ("PUSH", freq_raw["push"], "push"),
+                    ("OPEN_RAISE", freq_raw["raise"], "raise"),
+                    ("OPEN_LIMP", freq_raw["isolate"], "isolate"),
+                ]
+                selected_action, selected_pct, selected_key = max(
+                    action_candidates, key=lambda item: item[1]
                 )
-                return self._range_result(
-                    action="OPEN_RAISE",
-                    hero_combo=hero_combo,
-                    range_str=", ".join(action_ranges["raise"]),
+
+                if selected_pct >= freq_raw["fold"] and selected_pct > 0:
+                    range_str = ", ".join(action_ranges[selected_key])
+                    return self._range_result(
+                        action=selected_action,
+                        hero_combo=hero_combo,
+                        range_str=range_str,
+                        details=details,
+                        frequencies=frequencies,
+                        action_ranges=action_ranges,
+                    )
+                return DecisionResult(
+                    action="FOLD",
+                    is_in_range=False,
+                    range_str=None,
+                    range_stats=None,
+                    recommended_sizing=None,
+                    frequencies=frequencies,
+                    equity_pct=get_combo_equity(hero_combo),
+                    is_fallback=False,
                     details=details,
                     action_ranges=action_ranges,
                 )
 
-            model: type[NashPushFold] | type[IcmPushFold]
-            statement: Any
-            if icm_stage == "NORMAL":
-                model = NashPushFold
-                statement = select(model).where(
-                    model.table_size == table_size,
-                    model.position == hero_position,
-                    model.has_ante == has_ante,
-                    model.action == "PUSH_ONLY",
-                )
-            else:
-                model = IcmPushFold
-                statement = select(model).where(
-                    model.table_size == table_size,
-                    model.position == hero_position,
-                    model.payout_stage == icm_stage,
-                    model.has_ante == has_ante,
-                    model.action == "PUSH_ONLY",
-                )
-            row = session.scalar(statement.order_by(func.abs(model.stack_bb - stack_bb)))
-
-            if row is None and has_ante:
-                fallback_statement = select(model).where(
-                    model.table_size == table_size,
-                    model.position == hero_position,
-                    model.has_ante.is_(False),
-                    model.action == "PUSH_ONLY",
-                )
-                if icm_stage != "NORMAL":
-                    fallback_statement = fallback_statement.where(model.payout_stage == icm_stage)
-                row = session.scalar(
-                    fallback_statement.order_by(func.abs(model.stack_bb - stack_bb))
-                )
-                if row is not None:
-                    details["used_ante_fallback"] = True
-
-            if row is None:
-                return self._fallback("FOLD", details, get_combo_equity(hero_combo) if hero_combo else None)
-
-            details["strategy_stack_bb"] = row.stack_bb
-            action_ranges = self._ranges(
-                {"push": row.range_str}, table_size=table_size, icm_stage=icm_stage,
-                has_ante=has_ante, opponent_style=opponent_style,
-                spot_kind="shove",
+            combined_ranges = [", ".join(action_ranges[key]) for key in ACTION_KEYS if action_ranges[key]]
+            combined_str = ", ".join(combined_ranges) if combined_ranges else None
+            primary_action = (
+                "PUSH" if (stack_bb <= 15 and action_ranges["push"])
+                else "OPEN_RAISE" if action_ranges["raise"]
+                else "OPEN_LIMP" if action_ranges["isolate"]
+                else "FOLD"
             )
-            return self._range_result(
-                action="PUSH",
-                hero_combo=hero_combo,
-                range_str=", ".join(action_ranges["push"]),
+            return DecisionResult(
+                action=primary_action,
+                is_in_range=False,
+                range_str=combined_str,
+                range_stats=get_range_stats(combined_str) if combined_str else None,
+                recommended_sizing=None,
+                frequencies=None,
+                equity_pct=get_range_equity(combined_str) if combined_str else None,
+                is_fallback=False,
                 details=details,
                 action_ranges=action_ranges,
             )
