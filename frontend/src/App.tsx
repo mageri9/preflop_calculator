@@ -13,29 +13,6 @@ type ActiveTab = 'preflop' | 'postflop';
 type PotType = 'SRP' | '3BP';
 type HeroRole = 'PFR' | 'PFC';
 type HeroPosition = 'IP' | 'OOP';
-type FacingAction = 'FIRST_IN' | 'OPEN_2.5X' | 'LIMP' | 'PUSH' | 'THREE_BET' | 'MULTIWAY';
-
-const POSITIONS_BY_TABLE_SIZE: Record<number, VillainPosition[]> = {
-  2: ['BTN/SB', 'BB'],
-  3: ['BTN', 'SB', 'BB'],
-  4: ['CO', 'BTN', 'SB', 'BB'],
-  5: ['UTG', 'CO', 'BTN', 'SB', 'BB'],
-  6: ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
-  7: ['UTG', 'MP', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
-  8: ['UTG', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
-  9: ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB'],
-};
-
-function availableVillainPositions(tableSize: number, heroPosition?: string): VillainPosition[] {
-  const positions = POSITIONS_BY_TABLE_SIZE[tableSize] ?? POSITIONS_BY_TABLE_SIZE[9];
-  const heroIndex = positions.indexOf(heroPosition as VillainPosition);
-  return heroIndex > 0 ? positions.slice(0, heroIndex) : [];
-}
-
-function defaultVillainPosition(tableSize: number, heroPosition?: string): VillainPosition {
-  const positions = availableVillainPositions(tableSize, heroPosition);
-  return positions[positions.length - 1] ?? 'BTN';
-}
 
 const getActionColorClass = (act: string, pct: number) => {
   act = act.toUpperCase();
@@ -78,8 +55,6 @@ export default function App() {
   const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string>();
-  const [facingAction, setFacingAction] = useState<FacingAction>('FIRST_IN');
-  const [villainPosition, setVillainPosition] = useState<VillainPosition>('UTG');
   const [flopCards, setFlopCards] = useState<string[]>([]);
   const [postflopResult, setPostflopResult] = useState<DecisionResult | null>(null);
   const [postflopLoading, setPostflopLoading] = useState(false);
@@ -90,12 +65,9 @@ export default function App() {
   const preflopRequestId = useRef(0);
   const postflopRequestId = useRef(0);
   const { actionSequence, cycleVillain, clear: clearActionSequence } = useActionSequence();
+
   const invalidThreeBets = actionSequence.filter((event, index) => event.action === 'THREE_BET'
     && !actionSequence.slice(0, index).some((previous) => previous.action === 'OPEN' || previous.action === 'PUSH'));
-  const hasValidVillain = !session || availableVillainPositions(
-    session.table_size,
-    session.hero_position_label,
-  ).length > 0;
 
   useEffect(() => {
     window.Telegram?.WebApp?.ready();
@@ -104,9 +76,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
-    const positions = availableVillainPositions(session.table_size, session.hero_position_label);
-    setVillainPosition(defaultVillainPosition(session.table_size, session.hero_position_label));
-    if (!positions.length) setFacingAction('FIRST_IN');
+    clearActionSequence();
   }, [session?.hero_position_label, session?.table_size]);
 
   useEffect(() => {
@@ -116,20 +86,17 @@ export default function App() {
     setDecisionLoading(true);
     setDecisionError(undefined);
 
-    if (facingAction === 'MULTIWAY' && (!actionSequence.length || invalidThreeBets.length)) {
+    if (actionSequence.length > 0 && invalidThreeBets.length > 0) {
       setDecisionLoading(false);
       setDecisionResult(null);
-      setDecisionError(invalidThreeBets.length ? 'THREE_BET requires an earlier OPEN or PUSH' : undefined);
+      setDecisionError('THREE_BET требует предшествующего OPEN или PUSH');
       return;
     }
 
-    const request = facingAction === 'MULTIWAY'
+    const request = actionSequence.length > 0
       ? apiClient.getMultiwayDecision({ hero_combo: selectedCombo, action_sequence: actionSequence })
-      : apiClient.getPreflopDecision({
-          hero_combo: selectedCombo,
-          facing_action: facingAction === 'FIRST_IN' ? undefined : facingAction,
-          villain_position: facingAction === 'FIRST_IN' ? undefined : villainPosition,
-        });
+      : apiClient.getPreflopDecision({ hero_combo: selectedCombo });
+
     request
       .then((result) => {
         if (requestId === preflopRequestId.current) setDecisionResult(result);
@@ -149,8 +116,6 @@ export default function App() {
     session?.icm_stage,
     session?.has_ante,
     session?.opponent_style,
-    facingAction,
-    villainPosition,
     selectedCombo,
     actionSequence,
   ]);
@@ -190,20 +155,11 @@ export default function App() {
 
   const handleNextHand = () => {
     setSelectedCombo(undefined);
-    setFacingAction('FIRST_IN');
     clearActionSequence();
     void triggerNextHand();
   };
 
-  const handleFacingActionChange = (action: FacingAction) => {
-    if (facingAction === 'MULTIWAY' && action !== 'MULTIWAY') clearActionSequence();
-    setFacingAction(action);
-  };
-
   const handleVillainSeatClick = (position: string) => {
-    if (facingAction !== 'MULTIWAY') {
-      setFacingAction('MULTIWAY');
-    }
     cycleVillain(position as VillainPosition);
   };
 
@@ -247,6 +203,7 @@ export default function App() {
                 onNextHand={handleNextHand}
                 onResetSession={() => {
                   setSelectedCombo(undefined);
+                  clearActionSequence();
                   void resetSession();
                 }}
                 onChangeTableSize={(size) => {
@@ -266,40 +223,27 @@ export default function App() {
               action={decisionResult?.action}
               actionRanges={decisionResult?.action_ranges}
             />
-            <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Ситуация
-              <select
-                value={facingAction}
-                onChange={(event) => handleFacingActionChange(event.target.value as FacingAction)}
-                className="ml-auto min-w-0 max-w-full rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
-              >
-                <option value="FIRST_IN">Первое слово / Open</option>
-                <option value="OPEN_2.5X">Против Open 2.5x</option>
-                <option value="LIMP">Против Limp</option>
-                <option value="PUSH">Против Push</option>
-                <option value="THREE_BET">Против 3-Bet</option>
-                <option value="MULTIWAY" disabled={!hasValidVillain}>Multiway sequence</option>
-              </select>
-            </label>
-            {facingAction !== 'FIRST_IN' && facingAction !== 'MULTIWAY' && (
-              <label className="mx-auto flex w-full max-w-[360px] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Соперник
-                <select
-                  value={villainPosition}
-                  onChange={(event) => setVillainPosition(event.target.value as VillainPosition)}
-                  className="ml-auto min-w-0 max-w-full rounded-md bg-slate-800 px-2 py-1 text-xs normal-case text-slate-200"
-                >
-                  {availableVillainPositions(session?.table_size ?? 9, session?.hero_position_label).map((position) => (
-                    <option key={position} value={position}>{position}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {facingAction === 'MULTIWAY' && (
-              <div className="mx-auto w-full max-w-[380px] rounded-lg border border-slate-700 bg-slate-900/80 p-2 text-center text-[10px] text-slate-300">
-                {actionSequence.length ? actionSequence.map((event) => `${event.position}: ${event.action}`).join(' → ') : 'Click opponent seats in action order'}
+
+            {/* Индикатор текущих действий соперников */}
+            <div className="mx-auto flex w-full max-w-[380px] items-center justify-between rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-[10px] text-slate-300">
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <span className="font-bold uppercase tracking-wider text-slate-500 shrink-0">Торги:</span>
+                <span className="truncate font-mono">
+                  {actionSequence.length
+                    ? actionSequence.map((e) => `${e.position}: ${e.action}`).join(' → ')
+                    : 'Первое слово (Open) · нажмите на соперника'}
+                </span>
               </div>
-            )}
+              {actionSequence.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearActionSequence}
+                  className="ml-2 shrink-0 rounded bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-400 hover:bg-slate-700 hover:text-white"
+                >
+                  Сбросить
+                </button>
+              )}
+            </div>
 
             {decisionError && <div className="rounded-lg bg-red-950/60 p-2 text-xs text-red-300">{decisionError}</div>}
 
