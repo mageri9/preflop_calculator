@@ -58,13 +58,12 @@ class WeightedRange:
 
 def ante_expansion(context: RangeContext) -> float:
     """Return a 5-10% expansion derived from ante dead money."""
-
     if not context.has_ante:
         return 0.0
     players = max(2, min(10, context.table_size))
     dead_money = players * max(0.0, context.ante_bb)
     share = dead_money / (1.5 + dead_money)
-    return 0.02 + 0.03 * share
+    return 0.05 + 0.05 * share
 
 
 def icm_coefficient(stage: str, position_risk: float = 0.5) -> float:
@@ -177,15 +176,18 @@ def build_action_ranges(
     spot_kind: Literal["shove", "wide"] = "wide",
 ) -> dict[str, dict[str, float]]:
     """Build mutually normalized mixed frequencies for every matrix cell."""
-
     result: dict[str, dict[str, float]] = {key: {} for key in ACTION_KEYS}
     action_targets: dict[str, float] = {}
-    score_fn = lambda combo: _ranking_equity(combo, villain_range)
+    base_combos_by_action: dict[str, set[str]] = {}
+
     for action in ACTION_KEYS:
         base_range = base_ranges.get(action)
         if not base_range:
             continue
         base = expand_range_str(base_range)
+        if not base:
+            continue
+        base_combos_by_action[action] = base
         factor = (1.0 + ante_expansion(context)) * icm_coefficient(
             context.icm_stage, context.position_risk
         )
@@ -206,6 +208,17 @@ def build_action_ranges(
         for action in ("call", "isolate", "raise", "push")
         if action in action_targets
     ]
+    if not ordered_names:
+        return result
+
+    all_base_combos = set().union(*base_combos_by_action.values()) if base_combos_by_action else set()
+
+    def score_fn(combo: str) -> float:
+        base_score = _ranking_equity(combo, villain_range)
+        if all_base_combos and combo in all_base_combos:
+            return 100.0 + base_score
+        return base_score
+
     ranked = sorted(COMBO_WEIGHTS, key=score_fn, reverse=True)
     thresholds: dict[str, float] = {}
     cumulative_target = 0.0

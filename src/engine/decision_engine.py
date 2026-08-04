@@ -492,6 +492,7 @@ class DecisionEngine:
                 )
             )
             equity_pct = POSTFLOP_BUCKET_EQUITY.get(evaluation["bucket_id"], 50.0)
+            is_fallback = row is None
 
             if row is not None:
                 check_pct = row.action_check_pct
@@ -531,16 +532,15 @@ class DecisionEngine:
                 ("FOLD", fold_pct),
             ]
             action = max(action_candidates, key=lambda item: item[1])[0]
-
             return DecisionResult(
                 action=action,
-                is_in_range=True,
+                is_in_range=not is_fallback,
                 range_str=None,
                 range_stats=None,
                 recommended_sizing=sizing,
                 frequencies=frequencies,
                 equity_pct=equity_pct,
-                is_fallback=False,
+                is_fallback=is_fallback,
                 details=details,
             )
         except Exception as exc:

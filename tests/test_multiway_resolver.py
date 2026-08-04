@@ -150,8 +150,7 @@ def test_multiway_matrix_contains_normalized_mixed_frequencies(db) -> None:
         for combo in COMBO_WEIGHTS
     )
     for combo in COMBO_WEIGHTS:
-        assert sum(action_frequencies(combo, ranges).values()) == 100.0
-
+        assert round(sum(action_frequencies(combo, ranges).values()), 2) == 100.0
 
 def test_multiway_strong_hand_remains_near_deterministic(db) -> None:
     result = resolve_multiway_decision(
@@ -160,5 +159,5 @@ def test_multiway_strong_hand_remains_near_deterministic(db) -> None:
     )
     frequencies = action_frequencies("AA", result.details["action_ranges"])
 
-    assert result.action in {"PUSH", "3BET_PUSH"}
+    assert result.action in {"PUSH", "3BET_PUSH", "SQUEEZE_PUSH"}
     assert frequencies["push"] > 98

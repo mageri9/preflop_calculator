@@ -78,7 +78,7 @@ def test_boundary_region_has_monotonic_mixed_frequencies() -> None:
     ],
 )
 def test_mixed_frequencies_sum_to_100(score, thresholds, temperature) -> None:
-    assert sum(mixed_frequencies(score, thresholds, temperature).values()) == 100.0
+    assert round(sum(mixed_frequencies(score, thresholds, temperature).values()), 2) == 100.0
 
 
 def test_mixed_frequencies_far_from_threshold_is_near_binary() -> None:

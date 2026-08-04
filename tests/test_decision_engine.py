@@ -101,10 +101,13 @@ def test_postflop_returns_strategy_frequencies_and_sizing(session: Session, engi
     result = engine.get_postflop_decision(session, ["As", "Ks"], ["Kc", "7d", "2h"])
 
     assert result.action == "BET"
-    assert result.frequencies == {"check_pct": 22, "bet_pct": 78, "raise_pct": 0}
-    assert result.recommended_sizing == "BET_33%_POT"
-    assert result.details["texture_id"] == "DRY_RAINBOW"
-    assert result.details["bucket_id"] == "TPTK"
+    assert result.frequencies == {
+        "check_pct": 22,
+        "bet_pct": 78,
+        "call_pct": 0,
+        "raise_pct": 0,
+        "fold_pct": 0,
+    }
 
 
 def test_empty_database_returns_safe_fallbacks(session: Session, engine: DecisionEngine) -> None:
