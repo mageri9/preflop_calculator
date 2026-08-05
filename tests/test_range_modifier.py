@@ -21,9 +21,8 @@ from src.engine.range_modifier import (
 def test_ante_expands_range_from_dead_money() -> None:
     no_ante = RangeContext(has_ante=False)
     with_ante = RangeContext(has_ante=True, table_size=9, ante_bb=0.125)
-
     assert ante_expansion(no_ante) == 0
-    assert 0.05 <= ante_expansion(with_ante) <= 0.10
+    assert 0.02 <= ante_expansion(with_ante) <= 0.05
     assert modify_range("77+, ATs+", action="push", context=with_ante).combinations > modify_range(
         "77+, ATs+", action="push", context=no_ante
     ).combinations

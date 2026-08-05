@@ -216,7 +216,7 @@ def build_action_ranges(
     def score_fn(combo: str) -> float:
         base_score = _ranking_equity(combo, villain_range)
         if all_base_combos and combo in all_base_combos:
-            return 100.0 + base_score
+            return 10.0 + base_score
         return base_score
 
     ranked = sorted(COMBO_WEIGHTS, key=score_fn, reverse=True)
