@@ -57,13 +57,13 @@ class WeightedRange:
 
 
 def ante_expansion(context: RangeContext) -> float:
-    """Return a 5-10% expansion derived from ante dead money."""
+    """Return a 2-4% expansion derived from ante dead money."""
     if not context.has_ante:
         return 0.0
     players = max(2, min(10, context.table_size))
     dead_money = players * max(0.0, context.ante_bb)
     share = dead_money / (1.5 + dead_money)
-    return 0.05 + 0.05 * share
+    return round(0.02 + 0.03 * share, 4)
 
 
 def icm_coefficient(stage: str, position_risk: float = 0.5) -> float:

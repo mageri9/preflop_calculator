@@ -1,18 +1,13 @@
 """Generate and UPSERT a deterministic tournament strategy data set."""
-
 from __future__ import annotations
-
 import logging
 from collections.abc import Iterable, Sequence
 from typing import Any
-
 from sqlalchemy import Engine
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import scoped_session, sessionmaker
-
 from src.utils.range_validator import validate_range_str_raise
 from src.engine.position_utils import POSITIONS_BY_SIZE, position_risk
-
 from .base import Base, SessionLocal, engine
 from .init_db import FLOP_TEXTURES, HAND_BUCKETS, POSITION_LABELS
 from .models import (
@@ -29,94 +24,90 @@ from .models import (
     PostflopStrategy,
 )
 
-
 LOGGER = logging.getLogger(__name__)
 STACKS = (3, 5, 8, 10, 12, 15)
 OPEN_STACKS = (15, 20, 30, 40, 50, 80, 100)
 STYLES = ("TIGHT", "REG", "LOOSE")
 ICM_STAGES = ("BUBBLE", "FINAL_TABLE", "PAY_JUMP")
 
+# Откалиброванные GTO MTT диапазоны открытий (First-In Open Ranges)
 GTO_OPEN_RANGES_BY_STACK = {
-    # UTG
+    # UTG (~8.3% - 14.5%)
     ("UTG", 15): "88+, ATs+, KQs, AJo+, KQo",
     ("UTG", 20): "77+, A9s+, KTs+, QTs+, AJo+, KQo",
     ("UTG", 30): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
-    ("UTG", 40): "55+, A4s+, KTs+, QTs+, JTs, ATo+, KQo",
-    ("UTG", 50): "44+, A2s+, K9s+, QTs+, JTs, T9s, ATo+, KQo",
-    ("UTG", 80): "33+, A2s+, K9s+, Q9s+, J9s+, T9s, ATo+, KJo+",
-    ("UTG", 100): "22+, A2s+, K8s+, Q9s+, J9s+, T9s, A9o+, KJo+, QJo",
+    ("UTG", 40): "55+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
+    ("UTG", 50): "55+, A5s+, KTs+, QTs+, JTs, T9s, ATo+, KQo",
+    ("UTG", 80): "44+, A4s+, K9s+, QTs+, JTs, T9s, ATo+, KJo+",
+    ("UTG", 100): "33+, A2s+, K9s+, QTs+, JTs, T9s, AJo+, KJo+",
 
-    # UTG+1
+    # UTG+1 (~10.3% - 17.0%)
     ("UTG+1", 15): "77+, A9s+, KTs+, QTs+, AJo+, KQo",
     ("UTG+1", 20): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
     ("UTG+1", 30): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
-    ("UTG+1", 40): "44+, A3s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
-    ("UTG+1", 50): "33+, A2s+, K8s+, Q9s+, J9s+, T9s, A9o+, KJo+",
-    ("UTG+1", 80): "22+, A2s+, K7s+, Q9s+, J9s+, T9s, 98s, A8o+, KTo+, QJo",
-    ("UTG+1", 100): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 98s, A7o+, KTo+, QJo",
+    ("UTG+1", 40): "55+, A4s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
+    ("UTG+1", 50): "44+, A3s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
+    ("UTG+1", 80): "33+, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, AJo+, KJo+",
+    ("UTG+1", 100): "33+, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, ATo+, KJo+",
 
-    # MP
+    # MP (~12.2% - 20.5%)
     ("MP", 15): "66+, A8s+, KTs+, QTs+, JTs, ATo+, KQo",
     ("MP", 20): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
     ("MP", 30): "44+, A3s+, K9s+, Q9s+, JTs, T9s, 98s, ATo+, KJo+",
-    ("MP", 40): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
-    ("MP", 50): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A8o+, KTo+, QJo",
-    ("MP", 80): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, A7o+, K9o+, QTo+, JTo",
-    ("MP", 100): "22+, A2s+, K4s+, Q7s+, J7s+, T7s+, 97s+, 86s+, 76s, A5o+, K9o+, QTo+, JTo",
+    ("MP", 40): "44+, A2s+, K9s+, Q9s+, JTs, T9s, 98s, ATo+, KJo+",
+    ("MP", 50): "33+, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, ATo+, KJo+",
+    ("MP", 80): "22+, A2s+, K7s+, Q9s+, J9s+, T9s, 98s, 87s, ATo+, KJo+",
+    ("MP", 100): "22+, A2s+, K6s+, Q9s+, J9s+, T9s, 98s, 87s, ATo+, KJo+, QJo",
 
-    # MP+1
+    # MP+1 (~13.9% - 25.0%)
     ("MP+1", 15): "55+, A7s+, K9s+, Q9s+, JTs, T9s, ATo+, KQo",
     ("MP+1", 20): "44+, A4s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
-    ("MP+1", 30): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
-    ("MP+1", 40): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A8o+, K9o+, QJo",
-    ("MP+1", 50): "22+, A2s+, K5s+, Q8s+, J8s+, T7s+, 97s+, 86s+, 76s, A7o+, K9o+, QTo+, JTo",
-    ("MP+1", 80): "22+, A2s+, K3s+, Q7s+, J7s+, T7s+, 96s+, 86s+, 75s+, A5o+, K8o+, QTo+, JTo",
-    ("MP+1", 100): "22+, A2s+, K2s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, 65s, A3o+, K8o+, Q9o+, J9o+",
+    ("MP+1", 30): "33+, A3s+, K9s+, Q9s+, JTs, T9s, 98s, ATo+, KJo+",
+    ("MP+1", 40): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
+    ("MP+1", 50): "33+, A2s+, K7s+, Q9s+, J9s+, T8s+, 98s, 87s, A9o+, KTo+, QJo",
+    ("MP+1", 80): "22+, A2s+, K6s+, Q9s+, J9s+, T8s+, 98s, 87s, A9o+, KTo+, QJo",
+    ("MP+1", 100): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 98s, 87s, 76s, A9o+, KTo+, QJo",
 
-    # HJ
+    # HJ (~15.4% - 28.0%)
     ("HJ", 15): "55+, A5s+, K9s+, Q9s+, JTs, T9s, ATo+, KJo+",
-    ("HJ", 20): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
-    ("HJ", 30): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A7o+, K9o+, QJo",
-    ("HJ", 40): "22+, A2s+, K4s+, Q7s+, J8s+, T7s+, 97s+, 86s+, 76s, A5o+, K9o+, QTo+, JTo",
-    ("HJ", 50): "22+, A2s+, K3s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, 65s, A4o+, K8o+, Q9o+, J9o+",
-    ("HJ", 80): "22+, A2s+, K2s+, Q5s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, A2o+, K7o+, Q9o+, J9o+, T9o",
-    ("HJ", 100): "22+, A2s+, K2s+, Q4s+, J5s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K6o+, Q8o+, J8o+, T8o",
+    ("HJ", 20): "44+, A3s+, K9s+, Q9s+, JTs, T9s, 98s, A9o+, KTo+, QJo",
+    ("HJ", 30): "33+, A2s+, K8s+, Q9s+, J9s+, T8s+, 98s, A9o+, KTo+, QJo",
+    ("HJ", 40): "33+, A2s+, K7s+, Q9s+, J9s+, T8s+, 98s, 87s, A9o+, KTo+, QJo",
+    ("HJ", 50): "22+, A2s+, K6s+, Q8s+, J8s+, T8s+, 97s+, 87s, A8o+, K9o+, QJo",
+    ("HJ", 80): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, A8o+, K9o+, QJo",
+    ("HJ", 100): "22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 97s+, 87s, 76s, A7o+, K9o+, QTo+, JTo",
 
-    # CO
+    # CO (~21.0% - 33.2%)
     ("CO", 15): "44+, A2s+, K8s+, Q9s+, J9s+, T9s, A8o+, KTo+, QJo",
-    ("CO", 20): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 98s, A5o+, K9o+, QTo+, JTo",
-    ("CO", 30): "22+, A2s+, K3s+, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, A3o+, K8o+, Q9o+, J9o+, T9o",
-    ("CO", 40): "22+, A2s+, K2s+, Q5s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, A2o+, K7o+, Q8o+, J8o+, T8o",
-    ("CO", 50): "22+, A2s+, K2s+, Q4s+, J5s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K5o+, Q8o+, J8o+, T8o",
-    ("CO", 80): "22+, A2s+, K2s+, Q3s+, J4s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, A2o+, K4o+, Q7o+, J7o+, T8o+, 97o+",
-    ("CO", 100): "22+, A2s+, K2s+, Q2s+, J3s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K3o+, Q6o+, J7o+, T7o+, 97o+, 87o",
+    ("CO", 20): "33+, A2s+, K6s+, Q8s+, J8s+, T8s+, 98s, A7o+, K9o+, QJo",
+    ("CO", 30): "22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, A8o+, K9o+, QJo",
+    ("CO", 40): "22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 97s+, 87s, 76s, A7o+, K9o+, QTo+, JTo",
+    ("CO", 50): "22+, A2s+, K3s+, Q6s+, J7s+, T7s+, 97s+, 87s, 76s, 65s, A5o+, K9o+, QTo+, JTo",
+    ("CO", 80): "22+, A2s+, K2s+, Q5s+, J7s+, T7s+, 97s+, 87s, 76s, 65s, A4o+, K8o+, Q9o+, J9o+",
+    ("CO", 100): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 96s+, 86s+, 75s+, 65s, A3o+, K8o+, Q9o+, J9o+, T9o",
 
-    # BTN
+    # BTN (~35.4% - 48.0%)
     ("BTN", 15): "22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 98s, A2o+, K8o+, Q9o+, J9o+",
-    ("BTN", 20): "22+, A2s+, K2s+, Q5s+, J6s+, T7s+, 96s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
-    ("BTN", 30): "22+, A2s+, K2s+, Q3s+, J4s+, T6s+, 95s+, 85s+, 74s+, 64s+, 54s, A2o+, K3o+, Q7o+, J7o+, T7o+, 97o+, 87o",
-    ("BTN", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q5o+, J6o+, T7o+, 96o+, 86o+, 76o",
-    ("BTN", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J5o+, T6o+, 96o+, 86o+, 75o+",
-    ("BTN", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J4o+, T6o+, 96o+, 85o+, 75o+",
-    ("BTN", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T5o+, 95o+, 85o+, 75o+",
+    ("BTN", 20): "22+, A2s+, K2s+, Q6s+, J7s+, T7s+, 97s+, 87s, A2o+, K7o+, Q9o+, J9o+",
+    ("BTN", 30): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K6o+, Q8o+, J8o+, T8o",
+    ("BTN", 40): "22+, A2s+, K2s+, Q3s+, J5s+, T6s+, 96s+, 86s+, 75s+, 65s, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("BTN", 50): "22+, A2s+, K2s+, Q2s+, J5s+, T6s+, 96s+, 86s+, 75s+, 65s, A2o+, K4o+, Q8o+, J8o+, T8o",
+    ("BTN", 80): "22+, A2s+, K2s+, Q2s+, J4s+, T5s+, 95s+, 85s+, 75s+, 64s+, 54s, A2o+, K3o+, Q7o+, J7o+, T8o+",
+    ("BTN", 100): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 64s+, 54s, A2o+, K2o+, Q7o+, J7o+, T8o+, 97o+",
 
-    # SB / BTN/SB
+    # SB / BTN/SB (~36.7% - 53.0%)
     ("SB", 15): "22+, A2s+, K3s+, Q7s+, J8s+, T8s+, 98s, A2o+, K7o+, Q9o+, J9o+",
-    ("SB", 20): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
-    ("SB", 30): "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K2o+, Q6o+, J7o+, T7o+, 97o+",
-    ("SB", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J6o+, T6o+, 96o+, 86o+",
-    ("SB", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q3o+, J5o+, T6o+, 96o+, 85o+, 75o+",
-    ("SB", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J3o+, T5o+, 95o+, 85o+, 75o+",
-    ("SB", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T4o+, 94o+, 84o+, 74o+",
-
-    ("BTN/SB", 15): "22+, A2s+, K3s+, Q7s+, J8s+, T8s+, 98s, A2o+, K7o+, Q9o+, J9o+",
-    ("BTN/SB", 20): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
-    ("BTN/SB", 30): "22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K2o+, Q6o+, J7o+, T7o+, 97o+",
-    ("BTN/SB", 40): "22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J6o+, T6o+, 96o+, 86o+",
-    ("BTN/SB", 50): "22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q3o+, J5o+, T6o+, 96o+, 85o+, 75o+",
-    ("BTN/SB", 80): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J3o+, T5o+, 95o+, 85o+, 75o+",
-    ("BTN/SB", 100): "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T4o+, 94o+, 84o+, 74o+",
+    ("SB", 20): "22+, A2s+, K2s+, Q5s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("SB", 30): "22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 97s+, 86s+, 75s+, A2o+, K5o+, Q8o+, J8o+, T8o",
+    ("SB", 40): "22+, A2s+, K2s+, Q3s+, J5s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K3o+, Q7o+, J7o+, T8o+",
+    ("SB", 50): "22+, A2s+, K2s+, Q2s+, J4s+, T5s+, 95s+, 84s+, 74s+, 64s+, 54s, A2o+, K2o+, Q6o+, J7o+, T7o+, 97o+",
+    ("SB", 80): "22+, A2s+, K2s+, Q2s+, J3s+, T4s+, 94s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q5o+, J6o+, T7o+, 96o+",
+    ("SB", 100): "22+, A2s+, K2s+, Q2s+, J3s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K2o+, Q4o+, J6o+, T7o+, 96o+, 86o+",
 }
+
+# Дублируем значения SB для позиции BTN/SB (Heads-Up)
+for stack in OPEN_STACKS:
+    GTO_OPEN_RANGES_BY_STACK[("BTN/SB", stack)] = GTO_OPEN_RANGES_BY_STACK[("SB", stack)]
 
 PUSH_RANGES = (
     "22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J2o+, T2o+, 92o+, 82o+, 72o+, 62o+, 52o+, 42o+, 32o",
@@ -161,22 +152,11 @@ def generate_open_ranges() -> list[dict[str, Any]]:
                 GTO_OPEN_RANGES_BY_STACK.get((position, 30), "22+, A2s+, K9s+, A8o+, KTo+"),
             )
             for style in STYLES:
-                range_str = base_range
-                if style == "TIGHT":
-                    tight_stack = max(15, stack_bb - 10)
-                    range_str = GTO_OPEN_RANGES_BY_STACK.get(
-                        (position, tight_stack), base_range
-                    )
-                elif style == "LOOSE":
-                    loose_stack = min(100, stack_bb + 20)
-                    range_str = GTO_OPEN_RANGES_BY_STACK.get(
-                        (position, loose_stack), base_range
-                    )
                 rows.append({
                     "position": position,
                     "stack_bb": stack_bb,
                     "style": style,
-                    "range_str": range_str,
+                    "range_str": base_range,
                 })
     return rows
 
@@ -187,10 +167,8 @@ def _generate_limp_rows(*, call: bool) -> list[dict[str, Any]]:
         positions = (*positions, "BB")
     rows: list[dict[str, Any]] = []
     for position in positions:
-        source = "SB" if position == "BB" else position
         for stack_bb in OPEN_STACKS:
             for style in STYLES:
-                # Limp ranges omit premium hands; limp-call adds suited and pair coverage.
                 range_str = (
                     "99-22, A2s+, K8s+, Q9s+, J9s+, T9s, 98s, 87s"
                     if call else
@@ -255,7 +233,6 @@ def generate_icm_ranges() -> list[dict[str, Any]]:
 def generate_facing_action_ranges() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     all_positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB")
-
     for villain_index, villain in enumerate(all_positions[:-1]):
         for hero in all_positions[villain_index + 1 :]:
             for stack in (15, 20, 30, 50, 80, 100):
@@ -267,7 +244,6 @@ def generate_facing_action_ranges() -> list[dict[str, Any]]:
                         is_medium = 20 < stack <= 50
                         is_loose = style == "LOOSE"
                         is_tight = style == "TIGHT"
-
                         if action == "PUSH":
                             push_range = None
                             raise_range = None
@@ -295,7 +271,6 @@ def generate_facing_action_ranges() -> list[dict[str, Any]]:
                                     if not is_tight
                                     else "JJ+, AKs, AKo"
                                 )
-
                         elif action == "LIMP":
                             if is_short:
                                 push_range = (
@@ -321,7 +296,6 @@ def generate_facing_action_ranges() -> list[dict[str, Any]]:
                                     if not is_bb_hero
                                     else "55-22, A2s+, K2s+, Q2s+, J5s+, T6s+, 96s+, 86s+, 75s+"
                                 )
-
                         else:  # OPEN_2.5X
                             if is_short:
                                 push_range = (
@@ -365,7 +339,6 @@ def generate_facing_action_ranges() -> list[dict[str, Any]]:
                                     if is_bb_hero
                                     else "99-22, A2s+, K9s+, Q9s+, J9s+, T8s+, 98s, 87s, 76s, 65s"
                                 )
-
                         rows.append(
                             {
                                 "hero_position": hero,
@@ -397,7 +370,7 @@ def generate_blind_structures() -> list[dict[str, Any]]:
             (200, 400), (250, 500), (300, 600), (400, 800), (500, 1000),
             (750, 1500), (1000, 2000), (1500, 3000), (2000, 4000), (3000, 6000),
             (4000, 8000), (5000, 10000), (7500, 15000), (10000, 20000),
-            (15000, 30000), (20000, 40000), (30000, 60000), (50000, 100000),
+            (15000, 30000), (20000, 40000), (3000, 60000), (50000, 100000),
             (75000, 150000), (100000, 200000), (150000, 300000), (250000, 500000),
             (500000, 1000000), (1000000, 2000000)
         ),
@@ -441,7 +414,6 @@ def _postflop_frequencies(
             bet -= 10
         bet = max(10, min(85, bet - (8 if pot_type == "3BP" else 0)))
         return 100 - bet, bet, 0, "BET_33%_POT" if texture == "DRY_RAINBOW" else "BET_67%_POT"
-
     raise_pct = 18 if bucket in ("MONSTER", "NUT_DRAW") else 5 if bucket == "TPTK" else 0
     bet = 18 if hero_position == "IP" and bucket in ("AIR", "NUT_DRAW") else 0
     return 100 - raise_pct - bet, bet, raise_pct, "RAISE_3X" if raise_pct else "CHECK"
@@ -501,7 +473,6 @@ def _validate_rows(rows: Iterable[dict[str, Any]]) -> None:
 
 def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> None:
     """Fail before touching SQLite when a generated strategy dimension is missing."""
-
     def require_exact(model: type[Any], expected: set[tuple[Any, ...]]) -> None:
         primary_key = tuple(column.name for column in model.__table__.primary_key.columns)
         actual = {tuple(row[field] for field in primary_key) for row in data[model]}
@@ -514,7 +485,6 @@ def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> 
                 f"Incomplete {model.__name__} coverage: "
                 f"missing={len(missing)}, unexpected={len(unexpected)}"
             )
-
     open_positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BTN/SB")
     require_exact(OpenRange, {
         (position, stack, style)
@@ -543,7 +513,6 @@ def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> 
         for stage in ICM_STAGES
         for ante in (False, True)
     })
-
     positions = ("UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB")
     require_exact(FacingActionRange, {
         (hero, villain, action, stack, style)
@@ -553,7 +522,6 @@ def _validate_strategy_coverage(data: dict[type[Any], list[dict[str, Any]]]) -> 
         for style in STYLES
         for action in ("OPEN_2.5X", "LIMP", "PUSH")
     })
-
     for row in data[FacingActionRange]:
         if not any(row[field] for field in ("range_3bet_push", "range_3bet_raise", "range_call")):
             raise ValueError(f"FacingActionRange has no playable combinations: {row}")
@@ -586,7 +554,6 @@ def seed_tournament_data(
     _validate_strategy_coverage(data)
     for rows in data.values():
         _validate_rows(rows)
-
     Base.metadata.create_all(bind=bind)
     counts: dict[str, int] = {}
     with session_factory() as session:
@@ -598,7 +565,6 @@ def seed_tournament_data(
 
 
 seed_fixtures = seed_tournament_data
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
